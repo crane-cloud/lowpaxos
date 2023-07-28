@@ -4,6 +4,7 @@ use tokio::net::UdpSocket;
 // use tokio::time::{sleep, Duration};
 use std::net::SocketAddr;
 use std::str::FromStr;
+use kvstore::KeyValueStore;
 pub struct PaxosNode {
     id: u32,
     proposal_number: u32,
@@ -11,7 +12,8 @@ pub struct PaxosNode {
     accepted_proposal_value: Option<String>,
     promises_received: HashMap<SocketAddr, (u32, Option<String>)>,
     peers: Vec<String>,
-    storage: Arc<RwLock<HashMap<String, String>>>,
+    //storage: Arc<RwLock<HashMap<String, String>>>,
+    storage: KeyValueStore
 }
 
 impl PaxosNode {
@@ -25,7 +27,7 @@ impl PaxosNode {
             //acceptors: vec![],
             //learners: vec![],
             peers,
-            storage: Arc::new(RwLock::new(HashMap::new())),
+            storage: KeyValueStore::new(),
         }
     }
 
@@ -102,8 +104,9 @@ impl PaxosNode {
 
             println!("Consensus has been reached on value {}", proposal_value);
 
-            self.storage.write().unwrap().
-                insert(format!("key-{}", proposal_number), proposal_value);            
+            //self.storage.write().unwrap().
+            //    insert(format!("key-{}", proposal_number), proposal_value);
+            self.storage.set(format!("key-{}", proposal_number), proposal_value);            
         }
 
         else {
