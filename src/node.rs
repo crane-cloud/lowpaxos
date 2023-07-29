@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 use tokio::net::UdpSocket;
-// use tokio::time::{sleep, Duration};
 use std::net::SocketAddr;
 use std::str::FromStr;
 use kvstore::KeyValueStore;
+use tokio::time::{timeout, Duration};
+//use rand::Rng;
 pub struct PaxosNode {
     id: u32,
     proposal_number: u32,
@@ -12,8 +12,12 @@ pub struct PaxosNode {
     accepted_proposal_value: Option<String>,
     promises_received: HashMap<SocketAddr, (u32, Option<String>)>,
     peers: Vec<String>,
-    //storage: Arc<RwLock<HashMap<String, String>>>,
     storage: KeyValueStore
+}
+
+pub struct Client {
+    peers: Vec<SocketAddr>,
+    socket: UdpSocket,
 }
 
 impl PaxosNode {
@@ -24,18 +28,18 @@ impl PaxosNode {
             accepted_proposal_number: 0,
             accepted_proposal_value: None,
             promises_received: HashMap::new(),
-            //acceptors: vec![],
-            //learners: vec![],
             peers,
             storage: KeyValueStore::new(),
+            //commit_index
         }
     }
 
     pub fn propose(&mut self, value: String) {
-        println!("Proposing value {}", value);
         self.proposal_number += 1;
-
         let proposal_number = self.proposal_number;
+
+        println!("Proposing value: {} with proposal: {}", value, proposal_number);
+
         for peer in &self.peers {
             let proposal_number = proposal_number.clone();
             let value = value.clone();
@@ -100,12 +104,7 @@ impl PaxosNode {
         println!("Handling the accepted from {}", from);
 
         if proposal_number == self.proposal_number {
-            // Consensus has been reached
-
             println!("Consensus has been reached on value {}", proposal_value);
-
-            //self.storage.write().unwrap().
-            //    insert(format!("key-{}", proposal_number), proposal_value);
             self.storage.set(format!("key-{}", proposal_number), proposal_value);            
         }
 
@@ -119,15 +118,17 @@ impl PaxosNode {
         println!("Peer addresses: {:?}", self.peers);
 
         let addr = SocketAddr::from_str(&self.peers[self.id as usize - 1]).unwrap();
+
+        println!("Binding to {}", addr);
         //let socket = Arc::new(UdpSocket::bind(addr));
         //let socket = UdpSocket::bind(&addr).await.unwrap();
-        let socket = Arc::new(UdpSocket::bind(&addr).await.unwrap());
+        //let socket = Arc::new(UdpSocket::bind(&addr).await.unwrap());
         
         //let socket_receive = socket.clone();
         //let socket_send = socket.clone();
 
-        let node_id = self.id;
-        let peers = self.peers.clone();
+        // let node_id = self.id;
+        // let peers = self.peers.clone();
 
         // tokio::spawn(async move {
         //     loop {
@@ -197,6 +198,53 @@ impl PaxosNode {
         //         }
         //     });
 
+
+    }
+}
+
+impl Client {
+    pub async fn new(peers: Vec<String>, client_addr: &str) -> Self {
+        let socket = UdpSocket::bind(&client_addr).await.unwrap();
+        println!("Listening on {}", client_addr);
+        let peers: Vec<SocketAddr> = peers.iter().map(|p| SocketAddr::from_str(p).unwrap()).collect();
+
+        Client {
+            peers,
+            socket,
+        }
+    }
+
+    pub async fn propose(&mut self, value: String) {
+        let random_peer = rand::random::<usize>() % self.peers.len();
+        let addr = self.peers[random_peer];
+
+        let message = format!("propose:{}", value);
+
+        println!("Sending message {} to {}", message, addr);
+        self.socket.send_to(message.as_bytes(), addr).await.unwrap();
+
+    }
+
+    pub async fn run(&mut self) {
+        println!("Client initialized. Press 'p' to propose a value or 'q' to quit.");
+        loop {
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).unwrap();
+            let command = input.trim();
+    
+            match command {
+                "p" => {
+                    println!("Enter the value to propose:");
+                    let mut value = String::new();
+                    std::io::stdin().read_line(&mut value).unwrap();
+                    let value = value.trim().to_string();
+    
+                    self.propose(value).await;
+                }
+                "q" => break,
+                _ => println!("Invalid command. Press 'p' to propose or 'q' to quit."),
+            }
+        }
 
     }
 }
