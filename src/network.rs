@@ -1,6 +1,6 @@
 use tokio::net::UdpSocket;
 use std::net::SocketAddr;
-use std::str::FromStr;
+//use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use crate::message::PaxosMessage;
@@ -51,7 +51,7 @@ pub async fn receive_and_handle_paxos_message(socket: Arc<UdpSocket>, node: Arc<
                 let node = node.clone();
                 tokio::task::spawn(async move {
                     let mut node = node.write().await;
-                    node.handle_promise(addr, proposal_number, prev_proposal_number, prev_value);
+                    node.handle_promise(addr, proposal_number, prev_value);
                 });
              }
             PaxosMessage::Accept {proposal_number, proposal_value} => {
@@ -69,24 +69,5 @@ pub async fn receive_and_handle_paxos_message(socket: Arc<UdpSocket>, node: Arc<
                 });
             }
         }
-    }
-}
-
-pub async fn start_paxos_node(node_id: u32, peers: Vec<String>) {
-    println!("Starting the Paxos node");
-    println!("Peer addresses: {:?}", peers);
-
-    let addr = SocketAddr::from_str(&peers[node_id as usize - 1]).expect("Invalid peer address");
-    let socket = Arc::new(UdpSocket::bind(&addr).await.expect("Socket bind failed"));
-
-    //tokio::spawn(receive_and_handle_paxos_message(socket.clone(), node_id));
-
-    // Additional initialization or starting procedures for PaxosNode
-    let mut paxos_node = PaxosNode::new(node_id, peers);
-    // ... (perform any necessary initialization before starting the node)
-
-    // Main loop for PaxosNode operations (e.g., receiving client requests and proposing values)
-    loop {
-        // ... (implement the main loop for PaxosNode operations)
     }
 }
