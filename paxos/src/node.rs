@@ -1,16 +1,14 @@
 use std::collections::HashMap;
-use std::ops::DerefMut;
-//use std::result;
 use tokio::net::UdpSocket;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use kvstore::KeyValueStore;
 use std::sync::Arc;
-//use tokio::time::{Duration};
+use tokio::time::{Duration, sleep};
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
+use std::time::Instant;
 
-//use crate::send_message;
-//use tokio::time::{timeout, Duration};
-//use rand::Rng;
 pub struct PaxosNode {
     id: u32,
     addr: UdpSocket,
@@ -25,10 +23,16 @@ pub struct PaxosNode {
     storage: KeyValueStore
 }
 
+pub struct ClientT {
+    peers: Vec<SocketAddr>,
+    socket: UdpSocket,
+}
+#[derive(Debug)]
 pub struct Client {
     peers: Vec<SocketAddr>,
     socket: UdpSocket,
 }
+
 
 impl PaxosNode {
     pub async fn new(id: u32, addr: SocketAddr, peers: Arc<Vec<SocketAddr>>) -> Self {
@@ -146,7 +150,6 @@ impl PaxosNode {
 
                         continue;
                     }
-
                     else {
                         println!("Sending accept to {}", addr);
                         
@@ -158,6 +161,11 @@ impl PaxosNode {
                     }
                 }
                 self.promises_received.clear();
+            }
+
+            else {
+                //ToDo: handle the case where the leader doesn't get enough promises - propose again
+                println!("Not enough promises received yet");
             }
         }
     }
@@ -252,7 +260,7 @@ impl PaxosNode {
         if proposal_number == self.proposal_number {
             
             println!("Commit proposal: {} value: {}", proposal_number, commit_value);
-            self.handle_operation("commit", commit_value)
+            self.handle_operation("commit", commit_value);
         }
 
         else {
@@ -260,7 +268,7 @@ impl PaxosNode {
         }
     }
 
-    pub fn handle_operation(&mut self, operation_kind: &str, operation_value: String) {
+    pub fn handle_operation(&mut self, operation_kind: &str, operation_value: String) -> Result<(), Box<dyn std::error::Error>> {
 
         let operation_msg = operation_value.as_str().split_whitespace().collect::<Vec<&str>>();
         let operation = operation_msg[0];
@@ -292,16 +300,24 @@ impl PaxosNode {
         
                 let log = self.storage.get_log();
                 println!("Log at {} : {:?}", self.addr.local_addr().unwrap(), log);
+
+                let data = self.storage.get_data();
+                println!("Data at {} : {:?}", self.addr.local_addr().unwrap(), data);
         
             },
             "commit" => {
                 self.storage.commit();
-                
+
                 let commit_log = self.storage.get_commit_log();
-                println!("Commit Log at {} : {:?}", self.addr.local_addr().unwrap(), commit_log);
+                println!("\nCommit Log at {} : {:?}", self.addr.local_addr().unwrap(), commit_log);
+
+                let data = self.storage.get_data();
+                println!("\nData at {} : {:?}\n", self.addr.local_addr().unwrap(), data);
             },
             _ => println!("Invalid operation kind"),
         }
+
+        Ok(())
 
     }
 
@@ -368,13 +384,13 @@ impl PaxosNode {
     }
 }
 
-impl Client {
+impl ClientT {
     pub async fn new(peers: Vec<String>, client_addr: &str) -> Self {
         let socket = UdpSocket::bind(&client_addr).await.unwrap();
         println!("Listening on {}", client_addr);
         let peers: Vec<SocketAddr> = peers.iter().map(|p| SocketAddr::from_str(p).unwrap()).collect();
 
-        Client {
+        ClientT {
             peers,
             socket,
         }
@@ -419,4 +435,107 @@ impl Client {
         }
 
     }
+}
+
+impl Client {
+    pub async fn new(peers: Vec<SocketAddr>) -> Self {
+
+        let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 
+            rand::thread_rng().gen_range(32010..32999));
+        let socket = UdpSocket::bind(&socket_addr)
+            .await
+            .unwrap_or_else(|_| panic!("Could not bind client socket to {}", socket_addr));
+
+        println!("Listening on {}", socket_addr);
+
+        Client {
+            peers,
+            socket,
+        }
+    }
+
+    pub async fn client_thread_request(&mut self, value: String) -> Result<(SocketAddr, Duration), Box<dyn std::error::Error>> {
+        //let random_peer = rand::random::<usize>() % self.peers.len();
+        //let addr = self.peers[random_peer];
+
+        //Test 1 replica on the requests
+        let addr = self.peers[0];
+        let message = format!("client:{}", value);
+
+        println!("Sending message {} to {}", message, addr);
+        
+        let start_time = Instant::now();
+        if let Err(err) = self.socket.send_to(message.as_bytes(), addr).await {
+            eprintln!("Error sending message to {}: {:?}", addr, err);
+            return Err(err.into());
+        }
+
+        let latency = start_time.elapsed();
+        //println!("Received response from {} in {:?}", addr, latency);
+
+        Ok((addr, latency))
+
+    }
+
+    pub async fn run(&mut self, requests: u32) -> Result<(), Box<dyn std::error::Error>> {
+
+        for _ in 0..requests {
+            sleep(Duration::from_millis(10)).await;
+            // Generate a random request
+            let operation = match rand::thread_rng().gen_range(0..1) {
+                0 => "set",
+                //1 => "delete",
+                //2 => "append",
+                //4 => "get",
+                _ => panic!("Invalid operation"),
+            };
+
+            let key = generate_random_key();
+            let value = rand::thread_rng().gen_range(1..1000).to_string();
+
+            println!("Client: Sending request {} {} {}", operation, key, value);
+
+            let addr_latency = match operation {
+                "set" => {
+                    self.client_thread_request(format!("set {} {}", key, value)).await
+                }
+                "get" => {
+                    self.client_thread_request(format!("get {}", key)).await
+                }
+                "delete" => {
+                    self.client_thread_request(format!("delete {}", key)).await
+                }
+                "append" => {
+                    self.client_thread_request(format!("append {} {}", key, value)).await
+                }
+                _ => {
+                    return Err("Invalid operation".into());
+                }
+            };
+
+            match addr_latency {
+                Ok(addr_latency) => {
+                    let (addr, latency) = addr_latency;
+                    println!("{:?}->{:?}: Received response in {:?}", self.socket.local_addr(), addr, latency);
+                }
+                Err(err) => {
+                    eprintln!("Error sending request: {:?}", err);
+                }
+            }
+        }
+        Ok(())
+
+    }
+}
+
+fn generate_random_key() -> String {
+    let prefix: String = thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(5)
+        .map(char::from)
+        .collect();
+
+    let random_key: u32 = rand::thread_rng().gen_range(1..1000);
+
+    format!("{}-{}", prefix, random_key)
 }

@@ -1,0 +1,154 @@
+syntax = "proto3";
+
+package view_stamped;
+
+//import "google/protobuf/empty.proto";
+
+message Request {
+    bytes op = 1;
+    uint64 clientid = 2;
+    uint64 clientreqid = 3;
+}
+
+message UnloggedRequest {
+    bytes op = 1;
+    uint64 clientid = 2;
+    uint64 clientreqid = 3;
+}
+
+message RequestMessage {
+    Request request = 1;
+}
+
+message ReplyMessage {
+    uint64 view = 1;
+    uint64 opnum = 2;
+    bytes reply = 3;
+    uint64 clientreqid = 4;
+}
+
+message UnloggedRequestMessage {
+    UnloggedRequest request = 1;
+}
+
+message UnloggedReplyMessage {
+    bytes reply = 1;
+}
+message PrepareMessage {
+    uint64 view = 1;
+    uint64 opnum = 2;
+    uint64 batchstart = 3;
+    repeated Request request = 4;
+}
+
+message PrepareOkMessage {
+    uint64 view = 1;
+    uint64 opnum = 2;
+    uint32 replicaidx = 3;
+}
+
+message CommitMessage {
+    uint64 view = 1;
+    uint64 opnum = 2;
+}
+
+message CommitOKMessage {
+    uint64 view = 1;
+    uint64 opnum = 2;
+}
+
+message RequestStateTransferMessage {
+    uint64 view = 1;
+    uint64 opnum = 2;
+}
+
+message LogEntry {
+    uint64 view = 1;
+    uint64 opnum = 2;
+    Request request = 3;
+    optional uint32 state = 4;
+    optional bytes hash = 5;
+}
+
+message StateTransferMessage {
+
+    message LogEntry {
+        uint64 view = 1;
+        uint64 opnum = 2;
+        Request request = 3;
+        optional uint32 state = 4;
+        optional bytes hash = 5;
+    }
+    uint64 view = 1;
+    uint64 opnum = 2;
+    repeated LogEntry entries = 3;
+}
+
+message StartViewChangeMessage {
+    uint64 view = 1;
+    uint32 replicaidx = 2;
+    uint64 lastcommitted = 3;
+}
+
+message DoViewChangeMessage {
+    message LogEntry {
+        uint64 view = 1;
+        uint64 opnum = 2;
+        Request request = 3;
+        optional uint32 state = 4;
+        optional bytes hash = 5;
+    }
+    uint64 view = 1;
+    uint64 lastnormalview = 2;
+    uint64 lastop = 3;
+    uint64 lastcommitted = 4;
+    repeated LogEntry entries = 5;
+    uint32 replicaidx = 6;
+}
+
+message StartViewMessage {
+    message LogEntry {
+        uint64 view = 1;
+        uint64 opnum = 2;
+        Request request = 3;
+        optional uint32 state = 4;
+        optional bytes hash = 5;
+    }
+    uint64 view = 1;
+    uint64 lastop = 2;
+    uint64 lastcommitted = 3;
+    repeated LogEntry entries = 4;
+}
+
+message RecoveryMessage {
+    uint32 replicaidx = 1;
+    uint64 nonce = 2;
+}
+
+message RecoveryResponseMessage {
+    message LogEntry {
+        uint64 view = 1;
+        uint64 opnum = 2;
+        Request request = 3;
+        optional uint32 state = 4;
+        optional bytes hash = 5;
+    }
+    uint64 view = 1;
+    uint64 nonce = 2;
+    repeated LogEntry entries = 3;
+    optional uint64 lastop = 4;
+    optional uint64 lastcommitted = 5;
+    uint32 replicaidx = 6;
+}
+
+service ViewStamped {
+    rpc ViewStampedRequest(RequestMessage) returns (ReplyMessage);
+    // rpc UnloggedRequest(UnloggedRequestMessage) returns (UnloggedReplyMessage);
+    rpc Prepare(PrepareMessage) returns (PrepareOkMessage);
+    // rpc Commit(CommitMessage) returns (CommitOKMessage);
+    // rpc RequestStateTransfer(RequestStateTransferMessage) returns (StateTransferMessage);
+    // rpc StartViewChange(StartViewChangeMessage) returns (google.protobuf.Empty);
+    // rpc DoViewChange(DoViewChangeMessage) returns (google.protobuf.Empty);
+    // rpc StartView(StartViewMessage) returns (google.protobuf.Empty);
+    // rpc Recovery(RecoveryMessage) returns (RecoveryResponseMessage);
+}

@@ -1,23 +1,8 @@
-[package]
-name = "lowpaxos"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-kvstore = { version = "0.1", path = "kvstore" }
-
-tokio = { version = "1.12.0", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-rand = "0.8"
-
-#binaries
-[[bin]]
-name = "client"
-path = "src/client.rs"
-
-[[bin]]
-name = "paxos"
-path = "src/main.rs"
+[workspace]
+members = [
+    "paxos",
+    "vr",
+    "noler",
+    "kvstore",
+    "common",
+]
