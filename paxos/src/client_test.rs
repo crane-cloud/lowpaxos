@@ -1,4 +1,4 @@
-use lowpaxos::Client;
+use paxos::ClientT;
 
 #[tokio::main]
 async fn main() {
@@ -7,6 +7,6 @@ async fn main() {
         .map(|s| s.to_string())
         .collect();
 
-    let mut client = Client::new(peers, "127.0.0.1:32000").await;
+    let mut client = ClientT::new(peers, "127.0.0.1:32000").await;
     client.run().await;
 }

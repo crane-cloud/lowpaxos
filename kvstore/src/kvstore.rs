@@ -104,5 +104,10 @@ impl KeyValueStore {
         let log = self.log.read().unwrap();
         log.clone()
     }
+
+    pub fn get_data(&self) -> HashMap<String, String> {
+        let data = self.data.read().unwrap();
+        data.clone()
+    }
     
 }

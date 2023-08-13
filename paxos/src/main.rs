@@ -1,4 +1,4 @@
-use lowpaxos::PaxosNode;
+use paxos::PaxosNode;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
