@@ -7,3 +7,21 @@ edition = "2021"
 
 [dependencies]
 kvstore = { path = "../kvstore" }
+common = { path = "../common" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ndarray = "0.15"
+rand = "0.8.5"
+clap = "3.0"
+tokio = { version = "1.0", features = ["full"] }
+crossbeam-channel = "0.5"
+#sha2 = "0.9"
+
+[[bin]]
+name = "noler"
+path = "src/replica.rs"
+
+[[bin]]
+name = "main"
+path = "src/main.rs"

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use tokio::net::UdpSocket;
 use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 use std::str::FromStr;
-use kvstore::KeyValueStore;
+use kvstore::KVStore;
 use std::sync::Arc;
 use tokio::time::{Duration, sleep};
 use rand::distributions::Alphanumeric;
@@ -20,7 +20,7 @@ pub struct PaxosNode {
     promises_received: HashMap<SocketAddr, (u32, Option<String>)>,
     accepts_received: HashMap<SocketAddr, (u32, Option<String>)>,
     peers: Arc<Vec<SocketAddr>>,
-    storage: KeyValueStore
+    storage: KVStore,
 }
 
 pub struct ClientT {
@@ -48,7 +48,7 @@ impl PaxosNode {
             promises_received: HashMap::new(),
             accepts_received: HashMap::new(),
             peers,
-            storage: KeyValueStore::new(),
+            storage: KVStore::new(),
             //commit_index
         }
     }
@@ -298,18 +298,18 @@ impl PaxosNode {
                     _ => println!("Invalid operation"),
                 }
         
-                let log = self.storage.get_log();
-                println!("Log at {} : {:?}", self.addr.local_addr().unwrap(), log);
+                //let log = self.storage.get_log();
+                //println!("Log at {} : {:?}", self.addr.local_addr().unwrap(), log);
 
-                let data = self.storage.get_data();
-                println!("Data at {} : {:?}", self.addr.local_addr().unwrap(), data);
+                //let data = self.storage.get_data();
+                //println!("Data at {} : {:?}", self.addr.local_addr().unwrap(), data);
         
             },
             "commit" => {
-                self.storage.commit();
+                //self.storage.commit();
 
-                let commit_log = self.storage.get_commit_log();
-                println!("\nCommit Log at {} : {:?}", self.addr.local_addr().unwrap(), commit_log);
+                //let commit_log = self.storage.get_commit_log();
+                //println!("\nCommit Log at {} : {:?}", self.addr.local_addr().unwrap(), commit_log);
 
                 let data = self.storage.get_data();
                 println!("\nData at {} : {:?}\n", self.addr.local_addr().unwrap(), data);

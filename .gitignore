@@ -1,3 +1,9 @@
 /target
 /.vscode
 /lp-ori
+/common/target
+/vr/target
+/noler/target
+/kvstore/target
+/paxos/target
+/evaluation/lowpaxos*
