@@ -4,6 +4,16 @@ pub const CONFIGURATION:u8 = 2;
 pub const RECOVERY:u8 = 3;
 pub const NORMAL:u8 = 4;
 
-pub const LEADER_VOTE_TIMEOUT:u64 = 2500;
-pub const LEADERSHIP_VOTE_TIMEOUT:u64 = 3000;
-pub const LEADER_LEASE_TIMEOUT:u64 = 10000;
+pub const LEADER_VOTE_TIMEOUT:u64 = 4;
+pub const LEADERSHIP_VOTE_TIMEOUT:u64 = 6;
+
+pub const LEADER_LEASE_TIMEOUT:u64 = 6;
+
+pub const POLL_LEADER_TIMEOUT:u64 = 5;
+pub const HEARTBEAT_TIMEOUT:u64 = 8;
+
+pub const POLL_LEADER_TIMER:u64 = 3;
+
+// leader_lease_timeout < heartbeat_timeout  
+// poll_leader_timer < poll_leader_timeout
+// poll_leader_timeout < leader_lease_timeout

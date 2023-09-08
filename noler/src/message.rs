@@ -5,6 +5,14 @@ use crate::role::Role;
 use crate::config::Config;
 use crate::log::Log;
 
+
+#[derive(Debug)]
+pub struct ChannelMessage {
+    pub channel: String,
+    pub message: String,
+}
+
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Copy, Clone)]
 pub enum ElectionType {
     Normal,
@@ -15,10 +23,10 @@ pub enum ElectionType {
 }
 
 pub enum TimeoutType {
-    LeaderInitTimeout,
-    LeaderVoteTimeout,
-    LeadershipVoteTimeout,
-    LeaderLeaseTimeout,
+    LeaderInitTimeout(String),
+    LeaderVoteTimeout(String),
+    LeadershipVoteTimeout(String),
+    LeaderLeaseTimeout(String),
 }
 
 pub enum MessageType {
@@ -47,7 +55,7 @@ pub struct RequestVoteMessage {
     pub replica_address: SocketAddr,
     pub replica_role: Role,
     pub propose_term: u32,
-    pub replica_profile: Option<f32>,
+    pub replica_profile: f32,
     pub election_type: ElectionType,
 }
 
@@ -77,24 +85,26 @@ pub struct ConfigureReplicaMessage {
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HeartBeatMessage {
-    leader_address: SocketAddr,
-    propose_term: u32,
-    leader_profile: f32,
+    pub leader_id: u32,
+    pub leader_address: SocketAddr,
+    pub propose_term: u32,
+    pub replica_profile: f32,
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PollLeaderMessage {
-    candidate_address: SocketAddr,
-    propose_term: u32,
+    pub candidate_id: u32,
+    pub candidate_address: SocketAddr,
+    pub propose_term: u32,
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PollLeaderOkMessage {
-    leader_address: SocketAddr,
-    propose_term: u32,
-    leader_profile: f32,
+    pub leader_id: u32,
+    pub propose_term: u32,
+    pub replica_profile: f32,
 }
 
 #[allow(dead_code)]
@@ -142,9 +152,10 @@ pub struct CommitMessage {
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RequestConfigMessage {
-    replica_address: SocketAddr,
-    propose_term: u32,
-    propose_number: u64,
+    pub replica_id: u32,
+    pub replica_address: SocketAddr,
+    pub propose_term: u32,
+    //propose_number: u64,
 }
 
 #[allow(dead_code)]
@@ -187,6 +198,13 @@ pub struct ProposeReadMessage {
 pub struct ProposeReadOkMessage {
     candidate_address: SocketAddr,
     execute_index: u64,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigMessage {
+    pub leader_id: u32,
+    pub config: Config,
 }
 
 

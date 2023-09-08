@@ -2,7 +2,6 @@ use std::net::SocketAddr;
 use serde::{Serialize, Deserialize};
 
 use crate::role::Role;
-//use crate::monitor::ProfileMatrix;
 use crate::constants::INITIALIZATION;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -11,7 +10,7 @@ pub struct Replica {
     pub replica_address: SocketAddr,
     pub status: u8,
     pub role: Role,
-    pub profile: Option<f32>,
+    pub profile: f32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -20,6 +19,12 @@ pub struct Config {
     pub n: usize,
     pub f: usize,
     pub replicas: Vec<Replica>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LeaderConfig {
+    pub leader: Replica,
+    pub config: Config,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -35,14 +40,14 @@ impl Replica {
             replica_address,
             status: INITIALIZATION,
             role: Role::new(),
-            profile: None,
+            profile: 0.0,
         }
     }
 
 }
 
 impl Config {
-    pub fn new(propose_term: u32, n: usize, f: usize, replicas: Vec<Replica>) -> Self {
+    pub fn new(propose_term: u32, n: usize, f: usize, replicas: Vec<Replica>) -> Config {
         Config {
             propose_term,
             n,
@@ -50,6 +55,7 @@ impl Config {
             replicas,
         }
     }
+
     pub fn quorum_size(&self) -> usize {
         self.f + 1
     }
