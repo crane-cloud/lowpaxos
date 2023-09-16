@@ -1,8 +1,11 @@
 [workspace]
+
 members = [
     "paxos",
     "vr",
     "noler",
     "kvstore",
     "common",
+    "checker",
 ]
+resolver = "2"

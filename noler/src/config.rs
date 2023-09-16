@@ -4,32 +4,35 @@ use serde::{Serialize, Deserialize};
 use crate::role::Role;
 use crate::constants::INITIALIZATION;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+use stateright::actor::Id;
+
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash, PartialEq)]
 pub struct Replica {
     pub id: u32,
     pub replica_address: SocketAddr,
     pub status: u8,
     pub role: Role,
-    pub profile: f32,
+    pub profile: u8,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash, PartialEq)]
 pub struct Config {
-    pub propose_term: u32,
+    //pub propose_term: u32,
+    pub ballot: (u32, u64),
     pub n: usize,
     pub f: usize,
     pub replicas: Vec<Replica>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash, PartialEq)]
 pub struct LeaderConfig {
     pub leader: Replica,
     pub config: Config,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Eq, Hash, PartialEq)]
 pub struct ReplicaConfig {
-    pub propose_term: u32,
+    pub ballot: (u32, u64),
     pub replica: Replica,
 }
 
@@ -40,16 +43,16 @@ impl Replica {
             replica_address,
             status: INITIALIZATION,
             role: Role::new(),
-            profile: 0.0,
+            profile: 0,
         }
     }
 
 }
 
 impl Config {
-    pub fn new(propose_term: u32, n: usize, f: usize, replicas: Vec<Replica>) -> Config {
+    pub fn new(ballot: (u32, u64), n: usize, f: usize, replicas: Vec<Replica>) -> Config {
         Config {
-            propose_term,
+            ballot,
             n,
             f,
             replicas,
@@ -70,10 +73,53 @@ impl Config {
 }
 
 impl ReplicaConfig {
-    pub fn new(propose_term: u32, replica: Replica) -> Self {
+    pub fn new(ballot: (u32, u64), replica: Replica) -> Self {
         ReplicaConfig {
-            propose_term,
+            ballot,
             replica,
+        }
+    }
+}
+
+
+
+
+
+//Stateright versions
+
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash, PartialEq)]
+pub struct ReplicaSr {
+    pub id: Id,
+    pub status: u8,
+    pub role: Role,
+    pub profile: u8,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash, PartialEq)]
+pub struct ConfigSr {
+    pub ballot: (u32, u64),
+    pub n: usize,
+    pub replicas: Vec<ReplicaSr>,
+}
+
+impl ReplicaSr {
+    pub fn new(id: Id) -> Self { 
+        ReplicaSr {
+            id,
+            status: INITIALIZATION,
+            role: Role::new(),
+            profile: 0,
+        }
+    }
+
+}
+
+impl ConfigSr {
+    pub fn new(ballot: (u32, u64), n: usize, replicas: Vec<ReplicaSr>) -> ConfigSr {
+        ConfigSr{
+            ballot,
+            n,
+            replicas,
         }
     }
 }

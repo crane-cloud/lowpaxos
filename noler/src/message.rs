@@ -13,7 +13,7 @@ pub struct ChannelMessage {
 }
 
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Copy, Clone, Eq, Hash)]
 pub enum ElectionType {
     Normal,
     Offline,
@@ -54,19 +54,66 @@ pub struct RequestVoteMessage {
     pub replica_id: u32,
     pub replica_address: SocketAddr,
     pub replica_role: Role,
-    pub propose_term: u32,
-    pub replica_profile: f32,
+    pub ballot: (u32, u64),
+    pub replica_profile: u8,
     pub election_type: ElectionType,
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, Eq, Hash, PartialEq)]
 pub struct ResponseVoteMessage {
     pub replica_id: u32,
     pub replica_address: SocketAddr,
-    pub propose_term: u32,
-    pub propose_number: u64,
+    pub ballot: (u32, u64),
 }
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HeartBeatMessage {
+    pub leader_id: u32,
+    pub leader_address: SocketAddr,
+    pub ballot: (u32, u64),
+    pub replica_profile: u8,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigMessage {
+    pub leader_id: u32,
+    pub config: Config,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize, Eq, Hash, PartialEq)]
+pub struct RequestConfigMessage {
+    pub replica_id: u32,
+    pub replica_address: SocketAddr,
+    pub ballot: (u32, u64),
+}
+
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize, Eq, Hash, PartialEq)]
+pub struct PollLeaderMessage {
+    pub candidate_id: u32,
+    pub candidate_address: SocketAddr,
+    pub ballot: (u32, u64),
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PollLeaderOkMessage {
+    pub leader_id: u32,
+    pub ballot: (u32, u64),
+    pub replica_profile: u8,
+}
+
+
+
+
+
+
+
 
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
@@ -82,30 +129,7 @@ pub struct ConfigureReplicaMessage {
     pub propose_term: u32,
     pub replica_role: Role,
 }
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct HeartBeatMessage {
-    pub leader_id: u32,
-    pub leader_address: SocketAddr,
-    pub propose_term: u32,
-    pub replica_profile: f32,
-}
 
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PollLeaderMessage {
-    pub candidate_id: u32,
-    pub candidate_address: SocketAddr,
-    pub propose_term: u32,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PollLeaderOkMessage {
-    pub leader_id: u32,
-    pub propose_term: u32,
-    pub replica_profile: f32,
-}
 
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -151,15 +175,6 @@ pub struct CommitMessage {
 
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
-pub struct RequestConfigMessage {
-    pub replica_id: u32,
-    pub replica_address: SocketAddr,
-    pub propose_term: u32,
-    //propose_number: u64,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize)]
 pub struct ChangeConfigMessage {
     leader_address: SocketAddr,
     propose_term: u32,
@@ -198,13 +213,6 @@ pub struct ProposeReadMessage {
 pub struct ProposeReadOkMessage {
     candidate_address: SocketAddr,
     execute_index: u64,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConfigMessage {
-    pub leader_id: u32,
-    pub config: Config,
 }
 
 

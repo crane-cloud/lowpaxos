@@ -1,26 +1,29 @@
-#[derive(Clone)]
-pub struct Profile {
-    pub x: f32,
-}
+use stateright::actor::Id;
+//use std::collections::HashMap;
+use stateright::util::HashableHashMap;
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct Profile {
+    pub x: u8,
+}
 impl Profile {
-    pub fn new(x: f32) -> Self {
+    pub fn new(x: u8) -> Self {
         Profile { x }
     }
 
-    pub fn get_x(&self) -> f32 {
+    pub fn get_x(&self) -> u8 {
         self.x
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProfileMatrix {
     data: Vec<Vec<Profile>>,
 }
 
 impl ProfileMatrix {
     pub fn new(size: usize) -> Self {
-        let data = vec![vec![Profile::new(0.0); size]; size];
+        let data = vec![vec![Profile::new(0); size]; size];
         ProfileMatrix { data }
     }
 
@@ -38,7 +41,27 @@ impl ProfileMatrix {
     }
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct NolerMonitorMatrix {
+    pub profile_matrix: HashableHashMap<Id, Profile>,
+}
 
+impl NolerMonitorMatrix {
+    pub fn new() -> Self {
+        NolerMonitorMatrix {
+            profile_matrix: HashableHashMap::new(),
+        }
+    }
+
+    pub fn get(&self, id: &Id) -> Option<&Profile> {
+        self.profile_matrix.get(id)
+    }
+
+    pub fn set(&mut self, id: Id, profile: Profile) -> Result<(), &'static str> {
+        self.profile_matrix.insert(id, profile);
+        Ok(())
+    }
+}
 
 
 // use rand::Rng;

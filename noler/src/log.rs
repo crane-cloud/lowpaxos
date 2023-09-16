@@ -1,8 +1,9 @@
 use crate::message::{RequestMessage, ResponseMessage};
+
 use serde::{Serialize, Deserialize};
 
 // Define the LogEntryState enum
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Clone)]
 pub enum LogEntryState {
     Request,
     Propose,
@@ -39,9 +40,9 @@ impl Log {
     }
 
     // Append a new log entry
-    pub fn append(&mut self, mut propose_term:u32, mut propose_number: u64, req: RequestMessage, state: LogEntryState) -> &mut LogEntry {
+    pub fn append(&mut self, propose_term:u32, propose_number: u64, req: RequestMessage, state: LogEntryState) -> &mut LogEntry {
 
-        let mut new_entry = LogEntry {
+        let new_entry = LogEntry {
             propose_term,
             propose_number,
             state,

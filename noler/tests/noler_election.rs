@@ -9,7 +9,7 @@ mod tests {
     #[test]
     fn test_leader_election() {
         // Create nodes and configuration
-        let config = Config::new(0, 5, 2,
+        let config = Config::new((0,0), 5, 2,
             vec![
                 Replica::new(1, "127.0.0.1:3001".parse().unwrap()),
                 Replica::new(2, "127.0.0.2:3002".parse().unwrap()),

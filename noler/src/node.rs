@@ -48,11 +48,12 @@ pub struct NolerReplica {
     replica_address: SocketAddr,
     role: Role,
     state: u8,
-    propose_term: u32,
-    propose_number: u64,
-    voted: (u32, Option<u32>),
+    //propose_term: u32,
+    //propose_number: u64,
+    ballot: (u32, u64),
+    voted: (u32, Option<(u32, u64)>), // leader & ballot
     pub leader: Option<u32>, //To be part of the config
-    leadership_quorum: QuorumSet<(u32, u32), ResponseVoteMessage>,
+    leadership_quorum: QuorumSet<(u32, u64), ResponseVoteMessage>,
     propose_quorum: QuorumSet<(u32, u32), ProposeOkMessage>,
     propose_read_quorum: QuorumSet<(u32, u32), ProposeReadOkMessage>,
     monitor: ProfileMatrix,
@@ -143,19 +144,18 @@ impl NolerReplica {
         }));
 
         let mut matrix = ProfileMatrix::new(config.n as usize);
-        matrix.set(0, 1, Profile { x: 0.7}); matrix.set(0, 2, Profile { x: 0.6}); matrix.set(0, 3, Profile { x: 0.4}); matrix.set(0, 4, Profile { x: 0.5});
-        matrix.set(1, 0, Profile { x: 0.75}); matrix.set(1, 2, Profile { x: 0.5}); matrix.set(1, 3, Profile { x: 0.75}); matrix.set(1, 4, Profile { x: 0.6});
-        matrix.set(2, 0, Profile { x: 0.6}); matrix.set(2, 1, Profile { x: 0.5}); matrix.set(2, 3, Profile { x: 0.4}); matrix.set(2, 4, Profile { x: 0.45});
-        matrix.set(3, 0, Profile { x: 0.65}); matrix.set(3, 1, Profile { x: 0.8}); matrix.set(3, 2, Profile { x: 0.7}); matrix.set(3, 4, Profile { x: 0.5});
-        matrix.set(4, 0, Profile { x: 0.6}); matrix.set(4, 1, Profile { x: 0.55}); matrix.set(4, 2, Profile { x: 0.7}); matrix.set(4, 3, Profile { x: 0.3});
+        matrix.set(0, 1, Profile { x: 70}); matrix.set(0, 2, Profile { x: 60}); matrix.set(0, 3, Profile { x: 40}); matrix.set(0, 4, Profile { x: 50});
+        matrix.set(1, 0, Profile { x: 75}); matrix.set(1, 2, Profile { x: 50}); matrix.set(1, 3, Profile { x: 75}); matrix.set(1, 4, Profile { x: 60});
+        matrix.set(2, 0, Profile { x: 60}); matrix.set(2, 1, Profile { x: 50}); matrix.set(2, 3, Profile { x: 40}); matrix.set(2, 4, Profile { x: 45});
+        matrix.set(3, 0, Profile { x: 65}); matrix.set(3, 1, Profile { x: 80}); matrix.set(3, 2, Profile { x: 70}); matrix.set(3, 4, Profile { x: 50});
+        matrix.set(4, 0, Profile { x: 60}); matrix.set(4, 1, Profile { x: 55}); matrix.set(4, 2, Profile { x: 70}); matrix.set(4, 3, Profile { x: 30});
 
         NolerReplica {
             id: id,
             replica_address: replica_address,
             role: Role::new(),
             state: INITIALIZATION,
-            propose_term: 0,
-            propose_number: 0,
+            ballot: (0, 0),
             voted: (0, None),
             leader: None,
             leadership_quorum: QuorumSet::new(config.f as i32),
@@ -194,28 +194,28 @@ impl NolerReplica {
 
         if election_type == ElectionType::Offline {
             assert!(self.role == Role::Candidate || self.role == Role::Witness, "Only a candidate/witness can start offline election cycle");
-            assert!(!self.poll_leader_timeout.active() || !self.poll_leader_timer.active()|| !self.heartbeat_timeout.active(), 
+            assert!(self.poll_leader_timeout.active() || self.poll_leader_timer.active()|| !self.heartbeat_timeout.active(), 
                 "Only a candidate/witness with inactive poll leader timeout can start offline election cycle");
         }
 
         else if election_type == ElectionType::Profile {
-            assert!(self.role == Role::Candidate, "Only a candidate can start profile election cycle");
+            assert!(self.role == Role::Candidate || self.role == Role::Witness, "Only candidate/witness can start profile election cycle");
             //profile diff check
         }
 
         else if election_type == ElectionType::Timeout {
             assert!(self.role == Role::Candidate, "Only a candidate can start timeout election cycle");
-            assert!(!self.leader_vote_timeout.active(), "Only a candidate with inactive leader vote timeout can start timeout election cycle");
+            assert!(self.leader_vote_timeout.active(), "Only a candidate with inactive leader vote timeout can start timeout election cycle");
         }
 
         else if election_type == ElectionType::Degraded {
             assert!(self.role == Role::Member, "Only a member can start degraded election cycle");
-            assert!(!self.leadership_vote_timeout.active(), "Only a member with inactive leader vote timeout can start degraded election cycle");
+            assert!(self.leadership_vote_timeout.active(), "Only a member with inactive leader vote timeout can start degraded election cycle");
         }
 
         else if election_type == ElectionType::Normal {
             assert!(self.role == Role::Member, "Only a member can start normal election cycle");
-            assert!(!self.leader_vote_timeout.active(), "Only a candidate with inactive leader vote timeout can start normal election cycle");
+            assert!(self.leader_init_timeout.active(), "Only a member with inactive leader_init_timeout can start normal election cycle");
         }
 
         else {
@@ -237,10 +237,11 @@ impl NolerReplica {
                     replica_id: self.id,
                     replica_address: self.replica_address,
                     replica_role: self.role,
-                    propose_term: self.propose_term + 1,
+                    ballot: (self.ballot.0 + 1, self.ballot.1 + 1),
+                    //propose_term: self.propose_term + 1,
                     replica_profile: {
                         if let Some(profile) = self.monitor.get((self.id - 1) as usize, (replica.id - 1) as usize) { profile.get_x() }
-                        else { 0.0 }
+                        else { 0 }
                     },
                     election_type: election_type,
                 };
@@ -269,7 +270,7 @@ impl NolerReplica {
 
 
     // Function to compare replica profiles
-    fn profile_vote_result (&mut self, source_profile: f32, dest_profile: f32) -> bool {
+    fn profile_vote_result (&mut self, source_profile: u8, dest_profile: u8) -> bool {
         if source_profile >= dest_profile {
             return true;
         }
@@ -278,12 +279,51 @@ impl NolerReplica {
         }
     }
 
+    // Function to determine if received ballot is fresh
+    fn fresh_ballot (&mut self, ballot: (u32, u64)) -> bool {
+        if ballot.0 > self.ballot.0 && ballot.1 > self.ballot.1 {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+
+    //Function to determine if next ballot
+    fn next_ballot (&mut self, ballot: (u32, u64)) -> bool {
+        if ballot.0 == self.ballot.0 + 1 && ballot.1 == self.ballot.1 + 1 {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+
+    //Function to determine if voting is required or response should be provided immediately
+    fn proceed_vote_else_response (&mut self, ballot: (u32, u64), message: RequestVoteMessage) {
+        if self.next_ballot(ballot) {
+            // Process the result normally
+            self.process_profile_vote(message);
+
+            return;
+        }
+
+        else {
+            // Update the voted tuple
+            self.voted = (message.replica_id, Some(message.ballot));
+            // Provide a response immediately
+            self.provide_vote_response(ballot, message.replica_address);
+
+            return;
+        }
+    }
+
     // Function processes the profile in the RequestVoteMessage
     fn process_profile_vote (&mut self, message: RequestVoteMessage) {
         //Check if the replica's profile is better than the source's profile
         if self.profile_vote_result({
             if let Some(profile) = self.monitor.get((self.id - 1) as usize, (message.replica_id - 1) as usize) { profile.get_x() }
-            else { 0.0 }
+            else { 0 }
         }, 
             message.replica_profile) 
             {
@@ -292,23 +332,23 @@ impl NolerReplica {
                 message.replica_id, 
                 {
                     if let Some(profile) = self.monitor.get((self.id - 1) as usize, (message.replica_id - 1) as usize) { profile.get_x() }
-                    else { 0.0 }
+                    else { 0 }
                 },
                 self.id,
                 message.replica_profile, 
                 );
 
             //Update the voted tuple
-            self.voted = (message.propose_term, Some(message.replica_id));                
+            self.voted = (message.replica_id, Some(message.ballot));                
 
             //Send the ResponseVoteMessage to the source
-            self.provide_vote_response(message.propose_term, message.replica_address);
+            self.provide_vote_response(message.ballot, message.replica_address);
 
             //Start the leadershipvotetimer
-            ////let _ = self.leadership_vote_timeout.start();
-            //start a degraded election type start_election_cycle(election_type: degraded)
-            //return;
+            let _ = self.leadership_vote_timeout.start();
 
+            return;
+            
         }
         else {
             println!("{}: noVote - Replica {}:{} has a better profile than Replica {}:{}", self.id, 
@@ -317,29 +357,26 @@ impl NolerReplica {
                 message.replica_id,
                 {
                     if let Some(profile) = self.monitor.get((self.id - 1) as usize, (message.replica_id - 1) as usize) { profile.get_x() }
-                    else { 0.0 }
+                    else { 0 }
                 },
                 );
 
             println!("{}: changing the role to Candidate", self.id);
             self.role = Role::Candidate;
 
-            //Start the leader vote timeout
-            if !self.leader_vote_timeout.active(){
-                println!("{}: leader vote timeout inactive - starting the leader vote timeout", self.id);
-                let _ = self.leader_vote_timeout.start();
-            }
-            //return; //ignore
+            //Start the leader_vote_timeout
+            let _ = self.leader_vote_timeout.start();
+
+            return;
         }
     }
 
-    fn provide_vote_response (&mut self, propose_term: u32, destination: SocketAddr) {
+    fn provide_vote_response (&mut self, ballot: (u32, u64), destination: SocketAddr) {
         //Create the ResonseVoteMessage
         let response_vote_message = ResponseVoteMessage {
             replica_id: self.id,
             replica_address: self.replica_address,
-            propose_term: propose_term,
-            propose_number: self.propose_number,
+            ballot: ballot,
         };
 
         //Serialize the ResponseVoteMessage with meta type set
@@ -371,73 +408,55 @@ impl NolerReplica {
         //If the replica has never voted before [possible it is just starting up]
         if self.voted.1 == None {
 
-            //If this is the first time the replica is voting
-            if self.propose_term == 0 && message.propose_term == 1 {
+            //Stop the leader_init_timeout
+            self.leader_init_timeout.stop();
 
-                //Stop the leader_init_timeout
-                if self.leader_init_timeout.active() {
-                    println!("{}: stopping the leader init timeout as there is a vote request", self.id);
-                    self.leader_init_timeout.stop();
-                }
+            // Check if the request has a fresh ballot
+            if self.fresh_ballot(message.ballot) {
 
-                println!("{}: has never voted before", self.id);
-
-                //Change the state to election
+                //Update the state to election
                 self.state = ELECTION;
 
-                //Perform the normal vote processingg
-                self.process_profile_vote(message);
+                //Process the vote request
+                self.proceed_vote_else_response(message.ballot, message);
+
                 return;
             }
 
-            if (message.propose_term - self.propose_term) > 1 {
-
-                //Only vote for nearest known terms [Ignore]
-                println!("{}: vote request very much in the future", self.id);
-
-                //ToDo: Request for configuration information
-                return;
-            }
-
-            if self.propose_term > message.propose_term || self.propose_term == message.propose_term{
+            else {
                 //Ignore the message
-                println!("{}: stale vote request term - ignoring", self.id);
+                println!("{}: stale ballot - ignoring vote request", self.id);
                 return;
             }
+
         }
 
         // The replica has voted before
         else if self.voted.1 != None {
-            //If duplicate message, provide the same responses
-            if message.propose_term == self.voted.0 && self.voted.1 == Some(message.replica_id) {
+            //Check if it is a duplicate request
+            if message.ballot == self.voted.1.unwrap() && message.replica_id == self.voted.0 {
+                //Provide the same response
                 println!("{}: duplicate vote - resending same vote response", self.id);
-                self.provide_vote_response(message.propose_term, message.replica_address);
-
+                self.provide_vote_response(message.ballot, message.replica_address);
                 return;
             }
 
-            if message.propose_term < self.voted.0 || message.propose_term < self.propose_term {
-                println!("{}: stale term - ignoring vote request", self.id);
-                //Ignore the message
-                return;
-            }
-
-            if message.propose_term == self.voted.0 {
+            if message.ballot == self.voted.1.unwrap() {
                 match message.replica_role {
                     Role::Leader => {
                         //Ignore the message
-                        println!("{}: leader can't restart election with same term", self.id);
+                        println!("{}: leader can't restart election with same ballot", self.id);
                         return;
                     },
                     Role::Candidate => {
                         //Confirm the election type is timeout
                         if message.election_type == ElectionType::Timeout {
-                            //Process the vote request
-                            self.process_profile_vote(message);
+
+                            self.proceed_vote_else_response(message.ballot, message);
                         }
                         else {
                             //Ignore the message
-                            println!("{}: similar election terms can only be of type timeout", self.id);
+                            println!("{}: similar ballots can only be of type election timeout", self.id);
                             return;
                         }
                     },
@@ -447,28 +466,27 @@ impl NolerReplica {
                         return;
                     },
                     Role::Member => {
-                    //Confirm the election type is degraded
+                    //Confirm the election type is degraded | initial
                         if message.election_type == ElectionType::Degraded {
                             //Update the voted tuple
-                            self.voted = (message.propose_term, Some(message.replica_id));
+                            self.voted = (message.replica_id, Some(message.ballot));
 
                             //Send the ResponseVoteMessage immediately
-                            self.provide_vote_response(message.propose_term, message.replica_address);
+                            self.provide_vote_response(message.ballot, message.replica_address);
 
                             return;
                         }
                         else {
                             //Ignore the message
-                            println!("{}: similar election terms can only be of type degraded", self.id);
+                            println!("{}: similar ballots can only be of type degraded", self.id);
                             return;
                         }
                     },
-
                 }
             }
 
-            if message.propose_term > self.voted.0 || message.propose_term > self.propose_term {
-                //Check the election type
+            //Check if the ballot is fresh
+            if self.fresh_ballot(message.ballot) {
 
                 match message.election_type {
 
@@ -478,11 +496,11 @@ impl NolerReplica {
                             if self.profile_vote_result(message.replica_profile, 
                                 {
                                     if let Some(profile) = self.monitor.get((self.id - 1) as usize, (message.replica_id - 1) as usize) { profile.get_x() }
-                                    else { 0.0 }
+                                    else { 0 }
                                 }
                             ){
-                                // Leader profile is better than source profile
-                                println!("{}: leader profile is high - affirming leadership", self.id);
+                                // Leader profile is still better than source profile
+                                println!("{}: leader profile still good - affirming leadership", self.id);
 
                                 self.affirm_leadership();
                                 
@@ -498,16 +516,13 @@ impl NolerReplica {
                                 self.state = ELECTION;
 
                                 //Update the voted tuple
-                                self.voted = (message.propose_term, Some(message.replica_id));                
+                                self.voted = (message.replica_id, Some(message.ballot));                
 
                                 //Send the ResponseVoteMessage to the source
-                                self.provide_vote_response(message.propose_term, message.replica_address);
+                                self.provide_vote_response(message.ballot, message.replica_address);
 
                                 //Start the leadervotetimer
-                                if !self.leader_vote_timeout.active(){
-                                    println!("{}: leader vote timeout inactive - starting the leader vote timeout", self.id);
-                                    let _ = self.leader_vote_timeout.start();
-                                }
+                                let _ = self.leader_vote_timeout.start(); //Old leader can reclaim leadership at the end of this timeout
 
                                 return;
                             }
@@ -518,22 +533,22 @@ impl NolerReplica {
                             match message.replica_role {
                                 Role::Leader => {
                                     //Ignore the message
-                                    println!("{}: leader role can't restart a profile election [just as candidate]", self.id);
+                                    println!("{}: leader role can't restart a profile election [just as candidate|witness]", self.id);
                                     return;
                                 },
 
                                 Role::Candidate => {
-                                    //Provide the vote result
-                                    println!("{}: processing the vote request - leader profile detected low", self.id);
-                                    self.process_profile_vote(message); //ToDo - No need to change the role
-                                    return;
+                                    //Process the result
+                                    println!("{}: processing the vote request - leader profile detected low at candidate", self.id);
+
+                                    self.proceed_vote_else_response(message.ballot, message);
                                 },
 
                                 Role::Witness => {
                                     //Provide the vote result
-                                    println!("{}: processing the vote request - leader profile detected low", self.id);
-                                    self.process_profile_vote(message); //ToDo - No need to change the role
-                                    return;
+                                    println!("{}: processing the vote request - leader profile detected low at witness", self.id);
+
+                                    self.proceed_vote_else_response(message.ballot, message);
                                 },
 
                                 Role::Member => {
@@ -564,7 +579,7 @@ impl NolerReplica {
                             return;
                         }
 
-                        else if self.role == Role::Candidate || self.role == Role::Witness{
+                        else if self.role == Role::Candidate || self.role == Role::Witness {
                             match message.replica_role {
                                 Role::Leader => {
                                     //Ignore the message
@@ -573,19 +588,18 @@ impl NolerReplica {
                                 },
 
                                 Role::Candidate => {
-                                    //PollLeaderTimer and/or HeartBeatTimer expired
-                                    //Provide the vote result
+                                    //PollLeaderTimeout and/or HeartBeatTimeout expired | Process
                                     println!("{}: processing the vote request - leader detected offline", self.id);
-                                    self.process_profile_vote(message);
-                                    return;
+
+                                    self.proceed_vote_else_response(message.ballot, message);
                                 },
 
                                 Role::Witness => {
                                     //HeartBeatTimer expired - no candidate elected, witness has started election request
-                                    //Provide the vote result
                                     println!("{}: processing the vote request - leader detected offline", self.id);
-                                    self.process_profile_vote(message);
-                                    return;
+
+                                    self.proceed_vote_else_response(message.ballot, message);
+                                    
                                 },
 
                                 Role::Member => {
@@ -628,6 +642,8 @@ impl NolerReplica {
 
     fn handle_response_vote_message (&mut self, message: ResponseVoteMessage) {
 
+        //assert!(self.ballot == ((message.ballot.0 - 1), (message.ballot.1 - 1)), "Only a replica with the same ballot can handle a ResponseVoteMessage");
+    
         println!("{}: received a ResponseVoteMessage from Replica {}", self.id, message.replica_id);
 
         if self.replica_address == message.replica_address {
@@ -640,7 +656,7 @@ impl NolerReplica {
             return;
         }
 
-        if self.propose_term != (message.propose_term -1) {
+        if self.ballot != ((message.ballot.0 - 1), (message.ballot.1 - 1)) {
             println!("!{}: received a ResponseVoteMessage from {} with stale term", self.id, message.replica_id);
             return;
         }
@@ -650,26 +666,22 @@ impl NolerReplica {
             return;
         }
 
-        if let Some(message) = self.leadership_quorum.add_and_check_for_quorum((message.propose_term, message.propose_term), message.replica_id as i32, message.clone()) {
+        if let Some(message) = self.leadership_quorum.add_and_check_for_quorum(message.ballot, message.replica_id as i32, message.clone()) {
             //We have quorum for leadership - need to communicate to other replicas
 
             println!("{}: Quorum check -> {:?}", self.id, message);
 
             println!("{}: has quorum for leadership", self.id);
 
-            //Set the propose_term to +1
-            self.propose_term += 1;
+            //Update the ballot to +1
+            self.ballot = (self.ballot.0 + 1, self.ballot.1 + 1);
 
             //Change the role to leader
             println!("{}: changing the role to Leader", self.id);
             self.role = Role::Leader;
 
             //Start the LeaderLeaseTimer
-
-            if !self.leader_lease_timeout.active(){
-                println!("{}: {:?} lease inactive - starting the leader lease timeout", self.id, self.role);
-                let _ = self.leader_lease_timeout.start();
-            }
+            let _ = self.leader_lease_timeout.start();
             
             //Change the state to normal
             self.state = NORMAL;
@@ -719,13 +731,13 @@ impl NolerReplica {
 
         for replica in config.replicas.iter_mut() {
             if replica.id == self.id {
-                replica.profile = 1.0;
+                replica.profile = 100;
             }
 
             else {
                 replica.profile = {
                     if let Some(profile) = self.monitor.get((self.id - 1) as usize, (replica.id - 1) as usize) { profile.get_x() }
-                    else { 0.0 }
+                    else { 0 }
                 };
             }
         }
@@ -741,7 +753,7 @@ impl NolerReplica {
         }
 
         //Set the propose_term
-        config.propose_term = self.propose_term; //ToDo - Not sure if best to do it here
+        config.ballot = self.ballot; //ToDo - Not sure if best to do it here
 
         config
 
@@ -751,30 +763,17 @@ impl NolerReplica {
         println!("{}: received a ConfigMessage from Replica {}", self.id, message.leader_id);
 
         //Stop leader initialization timeouts
-        println!("{}: stopping all the timeouts if active in the HCM", self.id);
-
-        if self.leader_init_timeout.active() {
-            println!("{}: stopping the leader init timeout", self.id);
-            self.leader_init_timeout.stop();
-        }
-
-        if self.leader_vote_timeout.active() {
-            println!("{}: stopping the leader vote timeout", self.id);
-            self.leader_vote_timeout.stop();
-        }
-
-        if self.leadership_vote_timeout.active() {
-            println!("{}: stopping the leadership vote timeout", self.id);
-            self.leadership_vote_timeout.stop();
-        }
+        self.leader_init_timeout.stop();
+        self.leader_vote_timeout.stop();
+        self.leadership_vote_timeout.stop();
 
         if self.id == message.leader_id {
             println!("{}: received a ConfigMessage from itself", self.id);
             return;
         }
 
-        if self.propose_term >= message.config.propose_term {
-            println!("{}: received a ConfigMessage with a stale term", self.id);
+        if !self.fresh_ballot(message.config.ballot) {
+            println!("{}: received a ConfigMessage with a stale ballot", self.id);
             return;
         }
 
@@ -782,8 +781,10 @@ impl NolerReplica {
         self.config = message.config.clone();
 
         //Use the replica config to update some state
-        println!("{}: updating proposal_term to {}", self.id, self.config.propose_term);
-        self.propose_term = self.config.propose_term;
+        println!("{}: updating ballot to {:?}", self.id, self.config.ballot);
+
+        self.ballot = self.config.ballot;
+
         self.leader = Some(message.leader_id);
 
         for replica in self.config.replicas.iter() {
@@ -818,7 +819,7 @@ impl NolerReplica {
             },
 
             Role::Member => {
-                //Ignore as the replica must have updated its role
+                //Ignore as the replica must have updated its role at this point
                 println!("{}: ignore - already a candidate/witness", self.id);
                 return;
             },
@@ -827,10 +828,10 @@ impl NolerReplica {
         
     }
 
-    //The leader re(asserts/afirms leadership if with a better profile than source or if detected offline)
+    //The leader re(asserts/afirms leadership if with a better ballot than source or if detected offline)
     fn affirm_leadership (&mut self) {
         //Increment the term to invalidate other vote requests
-        self.propose_term += 1;
+        self.ballot = (self.ballot.0 + 1, self.ballot.1 + 1);
 
         //Set the config
         self.config = self.update_config();
@@ -856,6 +857,11 @@ impl NolerReplica {
     }
 
     fn handle_heartbeat_message(&mut self, message: HeartBeatMessage){
+
+        assert!(self.ballot == message.ballot, "Only a replica with the same ballot can handle a HeartBeatMessage");
+        assert!(self.role != Role::Leader, "Only a non-leader can handle a HeartBeatMessage");
+        assert!(self.leader == Some(message.leader_id), "Only accepting replica with my leader info");
+
         //Ignore if the heartbeat is from itself
         if self.id == message.leader_id {
             println!("{}: received a HeartBeatMessage from itself", self.id);
@@ -863,12 +869,12 @@ impl NolerReplica {
         }
 
         //Ignore if the heartbeat is from a different term
-        if self.propose_term != message.propose_term {
-            println!("{}: received a HeartBeatMessage with a different term", self.id);
+        if self.ballot != message.ballot {
+            println!("{}: received a HeartBeatMessage with a different ballot", self.id); //ToDo - determine if fresh ballot!
             return;
         }
 
-        if self.propose_term == message.propose_term {
+        if self.ballot == message.ballot {
             if self.role == Role::Candidate {
 
                 println!("{}: resetting the HB timers", self.id);
@@ -891,12 +897,12 @@ impl NolerReplica {
             }
 
             else {
-                //Request for the leader configuration - as the role is a member
+                //Request for the leader configuration - as the role is a member / Unreachable
 
                 let request_config_message = RequestConfigMessage {
                     replica_id: self.id,
                     replica_address: self.replica_address,
-                    propose_term: self.propose_term,
+                    ballot: self.ballot,
                 };
 
                 //Serialize the RequestConfigMessage with meta type set
@@ -906,7 +912,7 @@ impl NolerReplica {
                 );
 
                 //Send the RequestConfigMessage to the leader
-                println!("{}: sending a RequestConfigMessage to Replica {} with term {}", self.id, message.leader_id, self.propose_term);
+                println!("{}: sending a RequestConfigMessage to Replica {} with ballot {:?}", self.id, message.leader_id, self.ballot);
 
                 let _ = self.transport.send(
                     &message.leader_address,
@@ -932,7 +938,7 @@ impl NolerReplica {
 
         else {
 
-            if self.propose_term != message.propose_term {
+            if self.ballot != message.ballot {
                 println!("{}: ignore received a PollLeaderMessage with a different term", self.id);
                 return;
             }
@@ -940,10 +946,10 @@ impl NolerReplica {
             else {
                 let poll_leader_ok_message = PollLeaderOkMessage {
                     leader_id: self.id,
-                    propose_term: self.propose_term,
+                    ballot: self.ballot,
                     replica_profile: {
                         if let Some(profile) = self.monitor.get((self.id - 1) as usize, (message.candidate_id - 1) as usize) { profile.get_x() }
-                        else { 0.0 }
+                        else { 0 }
                     },
                 };
 
@@ -954,7 +960,7 @@ impl NolerReplica {
                 );
 
                 //Send the PollLeaderOkMessage to the candidate
-                println!("{}: sending a PollLeaderOkMessage to Replica {} with term {}", self.id, message.candidate_id, self.propose_term);
+                println!("{}: sending a PollLeaderOkMessage to Replica {} with ballot {:?}", self.id, message.candidate_id, self.ballot);
 
                 let _ = self.transport.send(
                     &message.candidate_address,
@@ -977,15 +983,15 @@ impl NolerReplica {
         //Process if the role is candidate
         if self.role == Role::Candidate {
 
-            if self.propose_term == message.propose_term {
+            if self.ballot == message.ballot {
 
                 let p1  = message.replica_profile;
                 let p2 = {
                     if let Some(profile) = self.monitor.get((self.id - 1) as usize, (message.leader_id - 1) as usize) { profile.get_x() }
-                    else { 0.0 }
+                    else { 0 }
                 };
                 // Check the variation in the profiles
-                if (p2 - p1) > 0.6 {
+                if (p2 - p1) > 60 {
                     //Start the election cycle with type profile
                     self.start_election_cycle(ElectionType::Profile);
                 }
@@ -1045,7 +1051,7 @@ impl NolerReplica {
                     );
 
                     //Send the ConfigMessage to the replica
-                    println!("{}: sending a ConfigMessage to Replica {} with term {}", self.id, message.replica_id, self.propose_term);
+                    println!("{}: sending a ConfigMessage to Replica {} with ballot {:?}", self.id, message.replica_id, self.ballot);
 
                     let _ = self.transport.send(
                         &message.replica_address,
@@ -1077,7 +1083,7 @@ impl NolerReplica {
             replica_address: message.replica_address,
             profile: {
                 if let Some(profile) = self.monitor.get((self.id - 1) as usize, (message.replica_id - 1) as usize) { profile.get_x() }
-                else { 0.0 }
+                else { 0 }
             },
             role: Role::Member,
             status: INITIALIZATION,
@@ -1120,11 +1126,13 @@ impl NolerReplica {
     fn handle_leader_vote_timeout (&mut self) {
         println!("{}: received LeaderVoteTimeout", self.id);
         //Start the election cycle type start_election_cycle(type: timeout)
+        self.state = ELECTION;
         self.start_election_cycle(ElectionType::Timeout);
     }
 
     fn handle_leadership_vote_timeout (&mut self) {
         println!("{}: received LeadershipVoteTimeout", self.id);
+        self.state = ELECTION;
         //Start the election cycle type start_election_cycle(id, election_type: degraded)
         self.start_election_cycle(ElectionType::Degraded);
     }
@@ -1142,10 +1150,10 @@ impl NolerReplica {
                     let heartbeat_message = HeartBeatMessage {
                         leader_id: self.id,
                         leader_address: self.replica_address,
-                        propose_term: self.propose_term,
+                        ballot: self.ballot,
                         replica_profile: {
                             if let Some(profile) = self.monitor.get((self.id - 1) as usize, (replica.id - 1) as usize) { profile.get_x() }
-                            else { 0.0 }
+                            else { 0 }
                         },
                     };
 
@@ -1156,7 +1164,7 @@ impl NolerReplica {
                     );
 
                     //Send the HeartBeatMessage to a replica
-                    println!("{}: sending a HeartBeatMessage to Replica {} with term {}", self.id, replica.id, self.propose_term);
+                    println!("{}: sending a HeartBeatMessage to Replica {} with ballot {:?}", self.id, replica.id, self.ballot);
                     let _ = self.transport.send(
                         &replica.replica_address,
                         &mut serialized_hbm.as_bytes(),
@@ -1186,6 +1194,7 @@ impl NolerReplica {
 
         println!("{}: received PollLeaderTimeout at {:?}", self.id, Instant::now());
         //Start the election cycle type Timeout
+        self.state = ELECTION;
         self.start_election_cycle(ElectionType::Offline);
 
     }
@@ -1193,6 +1202,7 @@ impl NolerReplica {
     fn handle_heartbeat_timeout(&mut self){
         println!("{}: received HeartBeatTimeout", self.id);
         //Start the election cycle type Timeout
+        self.state = ELECTION;
         self.start_election_cycle(ElectionType::Offline);
     }
 
@@ -1214,7 +1224,7 @@ impl NolerReplica {
             let poll_leader_message = PollLeaderMessage {
                 candidate_id: self.id,
                 candidate_address: self.replica_address,
-                propose_term: self.propose_term,
+                ballot: self.ballot,
             };
 
             //Serialize the PollLeaderMessage with meta type set
@@ -1361,7 +1371,7 @@ impl NolerReplica {
                                             
                                         match heartbeat_message {
                                             Ok(heartbeat_message) => {
-                                                println!("{}: received a HeartBeatMessage from Replica {} with term {} at {:?}", self.id, heartbeat_message.leader_id, heartbeat_message.propose_term, Instant::now());
+                                                println!("{}: received a HeartBeatMessage from Replica {} with ballot {:?} at {:?}", self.id, heartbeat_message.leader_id, heartbeat_message.ballot, Instant::now());
                                                 self.handle_heartbeat_message(heartbeat_message);
                                             },
                                             Err(err) => {
@@ -1376,7 +1386,7 @@ impl NolerReplica {
                                             
                                         match request_config_message {
                                             Ok(request_config_message) => {
-                                                println!("{}: received a RequestConfigMessage from Replica {} with term {}", self.id, request_config_message.replica_id, request_config_message.propose_term);
+                                                println!("{}: received a RequestConfigMessage from Replica {} with ballot {:?}", self.id, request_config_message.replica_id, request_config_message.ballot);
                                                 self.handle_request_config(request_config_message);
                                             },
                                             Err(err) => {

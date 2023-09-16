@@ -55,7 +55,7 @@ pub fn parse_configuration(config_file: &str) -> Config {
         panic!("Configuration did not specify an 'f' parameter");
     }
     
-    Config::new(0, n, f as usize, replicas)
+    Config::new((0,0), n, f as usize, replicas)
 }
 
 pub fn wrap_and_serialize(meta: &str, data: String) -> String {

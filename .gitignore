@@ -7,3 +7,4 @@
 /kvstore/target
 /paxos/target
 /evaluation/lowpaxos*
+/checker/target
