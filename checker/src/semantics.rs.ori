@@ -1,0 +1,585 @@
+use stateright::semantics::SequentialSpec;
+use std::fmt::Debug;
+use noler::{role::Role, constants::Status};
+use noler::message::ElectionType;
+
+#[derive(Clone, Default, Debug, Hash, PartialEq, serde::Serialize)]
+pub struct Election<T, U, V>(
+    pub T,
+    pub U,
+    pub V,
+);
+
+#[derive(Clone, Debug, Hash, PartialEq, serde::Serialize)]
+pub enum ElectionOp<T, U> {
+    RequestVote(T, U),
+    RequestConfig(T),
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, serde::Serialize)]
+pub enum ElectionRet<T, V> {
+    ResponseVote(T),
+    Config(T, V),
+}
+
+impl <T: Clone + Debug + PartialEq, U: Clone + Debug + PartialEq, V: Clone + Debug + PartialEq> SequentialSpec for Election<T, U, V> {
+    type Op = ElectionOp<T, U>;
+    type Ret = ElectionRet<T, V>;
+    fn invoke(&mut self, op: &Self::Op) -> Self::Ret {
+        match op {
+            ElectionOp::RequestVote(b, v) => {
+                ElectionRet::ResponseVote(b.clone())
+            }
+            ElectionOp::RequestConfig(b) => {
+                ElectionRet::Config(b.clone(), self.2.clone())
+            }
+        }
+    }
+    fn is_valid_step(&mut self, op: &Self::Op, ret: &Self::Ret) -> bool {
+        // Override to avoid unnecessary `clone` on `Read`.
+        match (op, ret) {
+            (ElectionOp::RequestVote(b, v), ElectionRet::ResponseVote(c)) => b == c,
+            (ElectionOp::RequestConfig(b), ElectionRet::Config(c, d)) => b == c,
+            _ => false,
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+//Ballot, NolerValue, ConfigSr
+//NolerValue -> (Role, ElectionType, u8)
+#[derive(Clone, Default, Debug, Hash, PartialEq, serde::Serialize)]
+pub struct NolerElection<I, T, V>( //T - Ballot, X - Role, Y - ElectionType, Z - u8, V - ConfigSr
+    //pub I, //Id
+    pub Role, //Role
+    pub Status,
+    pub T, //Ballot
+    pub Option<(I, T, ElectionType)>, //Voted
+    pub Option<(I, T)>, //Leader
+    pub Option<V>, //ConfigSr
+
+    //pub (X, Y, Z), //NolerValue
+);
+
+
+//RequestVote(ballot, (_replica_role, election_type, profile)
+#[derive(Clone, Debug, Hash, PartialEq, serde::Serialize)]
+pub enum NolerElectionOp<I, T, X, Y, Z> {
+    RequestVote(I, T, (X, Y, Z)),
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, serde::Serialize)]
+pub enum NolerElectionRet<T> {
+    ResponseVote(T),
+    NoVote,
+}
+
+impl<I, T, V> SequentialSpec for NolerElection<I, T, V>
+where
+    I: Clone + Debug + PartialEq,
+    T: Clone + Debug + PartialEq + PartialOrd,
+    //X: Clone + Debug + PartialEq,
+    V: Clone + Debug + PartialEq,
+    //Y: Clone + Debug + PartialEq,
+    //Z: Clone + Debug + PartialEq,
+{
+    type Op = NolerElectionOp<I, T, Role, ElectionType, u8>;
+    type Ret = NolerElectionRet<T>;
+    fn invoke(&mut self, op: &Self::Op) -> Self::Ret {
+        match op {
+            NolerElectionOp::RequestVote(i, b, v) => {
+                //T - Ballot, X - Role, Y - ElectionType, Z - u8, V - ConfigSr
+                //N - (Role, ElectionType, u8)
+
+                let (role, election_type, p_l) = v.clone();
+
+                let p_r = 80;
+
+                ////////////////////////////////////////////////////////////////////////////
+                if self.3.is_none() && self.4.is_none() {
+                    if self.2< *b {
+
+                        if p_r >= p_l {
+                            self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                            NolerElectionRet::ResponseVote(b.clone())
+                        }
+                        else {
+                            // Change role to candidate
+                            self.0 = Role::Candidate;
+                            NolerElectionRet::NoVote
+                        }
+                    }
+                    else {
+                        NolerElectionRet::NoVote
+                    }
+                }
+
+
+                ////////////////////////////////////////////////////////////////////////////
+                else if self.3.is_some() && self.4.is_none() {
+                    if self.3.as_ref().unwrap().1 == *b 
+                        && self.3.as_ref().unwrap().2 == election_type.clone() 
+                        && self.3.as_ref().unwrap().0 == *i
+                    {
+                        NolerElectionRet::ResponseVote(b.clone())
+                    }
+
+                    else if self.3.as_ref().unwrap().1 == *b {
+                        NolerElectionRet::NoVote
+                    }
+
+                    else if *b == self.3.as_ref().unwrap().1 {
+                        match election_type {
+                            ElectionType::Timeout if self.3.as_ref().unwrap().2 == ElectionType::Normal || self.3.as_ref().unwrap().2 == ElectionType::Degraded => {
+
+                                match self.0 {
+
+                                    Role::Member => {
+                                        self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                        NolerElectionRet::ResponseVote(b.clone())
+                                    }
+
+                                    Role::Candidate => {
+                                        self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                        NolerElectionRet::ResponseVote(b.clone())
+                                    }
+
+                                    _=> {
+                                        NolerElectionRet::NoVote
+                                    }
+                                }
+                            }
+
+                            ElectionType::Degraded if self.3.as_ref().unwrap().2 == ElectionType::Timeout || self.3.as_ref().unwrap().2 == ElectionType::Normal => {
+                                //Vote immediately
+                                self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                NolerElectionRet::ResponseVote(b.clone())
+                            }
+
+                            _ => {
+                                NolerElectionRet::NoVote
+                            }
+                        }
+                    }
+
+                    else { //b > self.4.as_ref().unwrap().1
+                        NolerElectionRet::ResponseVote(b.clone())
+                    }
+
+                }
+
+                ////////////////////////////////////////////////////////////////////////////
+                else if self.3.is_none() && self.4.is_some() {
+                    if self.4.as_ref().unwrap().1 >= *b || self.2 >= *b {
+                        NolerElectionRet::NoVote
+                    }
+                    else {
+                        match election_type {
+                            ElectionType::Profile if self.0 != Role::Leader => {
+                                match self.0 {
+                                    Role::Candidate => {
+                                        self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                        NolerElectionRet::ResponseVote(b.clone())
+                                    }
+
+                                    Role::Witness => {
+                                        self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                        NolerElectionRet::ResponseVote(b.clone())
+                                    }
+
+                                    _ => {
+                                        NolerElectionRet::NoVote
+                                    }
+                                }
+                            }
+
+                            ElectionType::Offline if self.0 != Role::Leader => {
+                                match self.0 {
+                                    Role::Candidate => {
+                                        self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                        NolerElectionRet::ResponseVote(b.clone())
+                                    }
+
+                                    Role::Witness => {
+                                        self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                        NolerElectionRet::ResponseVote(b.clone())
+                                    }
+
+                                    _ => {
+                                        NolerElectionRet::NoVote
+                                    }
+                                }
+                            }
+
+                            _=> {
+                                NolerElectionRet::NoVote
+                            }
+                        }
+                    }
+                }
+
+                ////////////////////////////////////////////////////////////////////////////
+                else {
+
+                    if (*b == self.2) && (*b == self.3.as_ref().unwrap().1) && (*i == self.3.as_ref().unwrap().0) {
+                        NolerElectionRet::ResponseVote(b.clone())
+                    }
+
+                    else if (*b <= self.2) || (*b <= self.4.as_ref().unwrap().1) || (*b <= self.3.as_ref().unwrap().1) {
+                        NolerElectionRet::NoVote
+                    }
+
+                    else {
+                        match election_type {
+                            ElectionType::Profile if role == Role::Candidate => {
+                                match self.0 {
+
+                                    Role::Leader => {
+                                        NolerElectionRet::NoVote // Profiles need to be compared, okay - send better ballot (term)
+                                    }
+                                    Role::Candidate => {
+                                        self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                        NolerElectionRet::ResponseVote(b.clone())
+                                    }
+
+                                    Role::Witness => {
+                                        self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                        NolerElectionRet::ResponseVote(b.clone())
+                                    }
+
+                                    _ => {
+                                        NolerElectionRet::NoVote
+                                    }
+                                }
+                            }
+
+                            ElectionType::Offline if role == Role::Candidate => {
+                                match self.0 {
+
+                                    Role::Leader => {
+                                        NolerElectionRet::NoVote // Profile needs to be compared - leader sends Config with better ballot
+                                    }
+
+                                    Role::Candidate => {
+                                        self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                        NolerElectionRet::ResponseVote(b.clone())
+                                    }
+
+                                    Role::Witness => {
+                                        self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                        NolerElectionRet::ResponseVote(b.clone())
+                                    }
+
+                                    _ => {
+                                        NolerElectionRet::NoVote
+                                    }
+                                }
+                            }
+
+                            ElectionType::Timeout if role == Role::Candidate || role == Role::Witness => {
+                                //Vote immediately
+                                self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                NolerElectionRet::ResponseVote(b.clone())
+                            }
+
+                            ElectionType::Degraded if role == Role::Candidate || role == Role::Witness => {
+                                //Vote immediately
+                                self.3 = Some((i.clone(), b.clone(), election_type.clone()));
+                                NolerElectionRet::ResponseVote(b.clone())
+                            }
+
+                            _ => {
+                                NolerElectionRet::NoVote
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    fn is_valid_step(&mut self, op: &Self::Op, ret: &Self::Ret) -> bool {
+
+        match (op, ret) {
+            // // (NolerElectionOp::RequestVote(_, _), NolerElectionRet::ResponseVote(_)) => {true},
+            // // (NolerElectionOp::RequestVote(_, _), NolerElectionRet::NoVote) => {true},
+            // (NolerElectionOp::RequestVote(_, _, _), NolerElectionRet::ResponseVote(_)) => {true},
+            // (NolerElectionOp::RequestVote(_, _, _), NolerElectionRet::NoVote) => {true},
+
+            (NolerElectionOp::RequestVote(_, b, (role, election_type, p_l)), NolerElectionRet::ResponseVote(c)) => {
+
+                let role = role.clone();
+                let election_type = election_type.clone();
+                let p_l = p_l.clone();
+
+                let p_r = 80;
+
+                match election_type {
+
+                    ElectionType::Normal => {
+                        log::info!("Normal Election Path");
+                        if self.3.is_none() && self.4.is_none() && role == Role::Member {
+                            if *b > self.2 {
+                                if p_r >= p_l {
+                                    if *b == *c {
+                                        true
+                                    }
+                                    else {
+                                        false
+                                    }
+                                }
+                                else {
+                                    false
+                                }
+                            }
+                            else {
+                                false
+                            }
+                        }
+                        else {
+                            false
+                        }
+                    }
+
+                    ElectionType::Degraded  => {
+                        if self.4.is_none() && role == Role::Member
+                        {
+                            if *b > self.2 {
+                                if *b == *c {
+                                    true
+                                }
+                                else {
+                                    false
+                                }
+                            }
+                            else {
+                                false
+                            }
+                        }
+                        else {
+                            false
+                        }
+                    }
+
+                    ElectionType::Offline  => {
+                        if self.4.is_some() && role == Role::Candidate && self.0 != Role::Leader && role != Role::Member
+                        {
+                            if *b > self.2 {
+                                if *b == *c {
+                                    true
+                                }
+                                else {
+                                    false
+                                }
+                            }
+                            else {
+                                false
+                            }
+                        }
+                        else {
+                            false
+                        }
+                    }
+
+
+                    ElectionType::Timeout => {
+                        if self.3.is_some() && role == Role::Candidate {
+                            if *b > self.2 {
+                                if *b == *c {
+                                    true
+                                }
+                                else {
+                                    false
+                                }
+                            }
+                            else {
+                                false
+                            }
+                        }
+                        else {
+                            false
+                        }
+                    }
+
+                    ElectionType::Profile => {
+                        if self.4.is_some() && role == Role::Candidate
+                        {
+                            if *b > self.2 {
+                                if *b == *c {
+                                    true
+                                }
+                                else {
+                                    false
+                                }
+                            }
+                            else {
+                                false
+                            }
+                        }
+                        else {
+                            false
+                        }
+                    }
+                }
+            }
+
+            (NolerElectionOp::RequestVote(_, b, (role, election_type, p_l)), NolerElectionRet::NoVote) => {
+                let role = role.clone();
+                let election_type = election_type.clone();
+                let p_l = p_l.clone();
+
+                let p_r = 80;
+
+                match election_type {
+
+                    ElectionType::Normal => {
+                        log::info!("Normal Election Path");
+                        if self.3.is_none() && self.4.is_none() && role == Role::Member {
+                            if *b > self.2 {
+                                if p_l > p_r {
+                                    true
+                                }
+                                else {
+                                    false
+                                }
+                            }
+                            else {
+                                true
+                            }
+                        }
+                        else {
+                            true
+                        }
+                    }
+
+                    ElectionType::Degraded  => {
+                        if self.4.is_none() && role == Role::Member
+                        {
+                            if *b > self.2 {
+                                false
+                            }
+                            else {
+                                true
+                            }
+                        }
+
+                        else if self.3.is_some() && role == Role::Member
+                        {
+                            if *b == self.3.as_ref().unwrap().1 {
+                                false
+                            }
+                            else {
+                                true
+                            }
+                        }
+                        else {
+                            true
+                        }
+                    }
+
+                    ElectionType::Offline  => {
+                        if self.4.is_some() && role == Role::Candidate && self.0 != Role::Leader && role != Role::Member
+                        {
+                            if *b > self.2 {
+                                false
+                            }
+                            else {
+                                true
+                            }
+                        }
+                        else {
+                            true
+                        }
+                    }
+
+
+                    ElectionType::Timeout => {
+                        if self.3.is_some() && role == Role::Candidate 
+                        {
+                            if *b > self.2 {
+                                false
+                            }
+                            else {
+                                true
+                            }
+
+                        }
+
+                        else {
+                            true
+                        }
+                    }
+
+                    ElectionType::Profile => {
+                        if self.4.is_some() && role == Role::Candidate
+                        {
+                            if *b > self.2 {
+                                false
+                            }
+                            else {
+                                true
+                            }
+                        }
+                        else {
+                            false
+                        }
+                    }
+                }
+
+
+            }
+
+            //_ => {false}
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+#[rustfmt::skip]
+mod test {
+    use super::*;
+    use noler::message::ElectionType;
+    use noler::role::Role;
+    //use noler::config::ConfigSr;
+
+    #[test]
+    fn models_nolerelection_semantics() {
+        let mut r1 = NolerElection(Role::Member, Status::INITIALIZATION, (0, 0), None, None, None::<u32>, (Role::Member, ElectionType::Normal, 0));
+
+        assert_eq!(r1.invoke(&NolerElectionOp::RequestVote(1, (1, 1), (Role::Member, ElectionType::Normal, 0))), NolerElectionRet::ResponseVote((1, 1)), "Normal Election Path Pass");
+        assert_eq!(r1.invoke(&NolerElectionOp::RequestVote(1, (1, 1), (Role::Member, ElectionType::Timeout, 0))), NolerElectionRet::NoVote, "Timeout Election Path - NoVote");
+        assert_eq!(r1.invoke(&NolerElectionOp::RequestVote(1, (1, 1), (Role::Member, ElectionType::Degraded, 0))), NolerElectionRet::ResponseVote((1, 1)), "Degraded Election Path Pass"); //Should pass with a ResponseVote
+        assert_eq!(r1.invoke(&NolerElectionOp::RequestVote(1, (1, 1), (Role::Member, ElectionType::Profile, 0))), NolerElectionRet::NoVote, "Profile Election Path - NoVote");
+        assert_eq!(r1.invoke(&NolerElectionOp::RequestVote(1, (1, 1), (Role::Member, ElectionType::Offline, 0))), NolerElectionRet::NoVote, "Offline Election Path - NoVote");
+        //assert_eq!(r.invoke(&NolerElectionOp::RequestVote(1, (0, 0), (Role::Member, ElectionType::Normal, 0))), NolerElectionRet::NoVote); //Should pass with a NoVote
+        assert_eq!(r1.invoke(&NolerElectionOp::RequestVote(1, (1, 1), (Role::Candidate, ElectionType::Timeout, 0))), NolerElectionRet::ResponseVote((1, 1))); //Should pass with a ResponseVote
+
+    }
+
+    #[test]
+    fn models_nolerelection_valid_histories() {
+        //assert!(NolerElection(Role::Member, Status::INITIALIZATION, (0, 0), None, None::<(i32, i32)>, None, (Role::Member, ElectionType::Normal, 0)).is_valid_history(vec![]));
+
+    //    assert!(NolerElection(Role::Member, Status::INITIALIZATION, (0, 0), None, None, None, (Role::Member, ElectionType::Normal, 0)).is_valid_history(vec![
+    //        (NolerElectionOp::RequestVote(1, (1, 1), (Role::Member, ElectionType::Normal, 100)), NolerElectionRet::ResponseVote((1, 1))),
+
+            //(NolerElectionOp::RequestVote(1, (1, 1), (Role::Member, ElectionType::Normal, 0)), NolerElectionRet::ResponseVote((1, 1))),
+            //(NolerElectionOp::RequestVote(1, (1, 1), (Role::Member, ElectionType::Timeout, 0)), NolerElectionRet::ResponseVote((1, 1))),
+    //    ]));
+    }
+
+    #[test]
+    fn models_nolerelection_invalid_histories() {
+        assert!(NolerElection(Role::Member, Status::INITIALIZATION, (0, 0), None, None, None::<u32>, (Role::Member, ElectionType::Normal, 0)).is_valid_history(vec![
+            (NolerElectionOp::RequestVote(1, (1, 1), (Role::Member, ElectionType::Normal, 0)), NolerElectionRet::ResponseVote((1, 1))),
+            (NolerElectionOp::RequestVote(1, (2, 2), (Role::Candidate, ElectionType::Offline, 0)), NolerElectionRet::ResponseVote((2, 2))),
+            (NolerElectionOp::RequestVote(1, (1, 1), (Role::Member, ElectionType::Degraded, 0)), NolerElectionRet::ResponseVote((1, 1))),
+        ]));
+
+        // assert!(!NolerElection((0, 0), (Role::Member, ElectionType::Normal, 0), 0).is_valid_history(vec![
+        //     (NolerElectionOp::RequestVote((1, 1), (Role::Member, ElectionType::Normal, 0)), NolerElectionRet::ResponseVote((1, 1))),
+        //     (NolerElectionOp::RequestVote((1, 0), (Role::Member, ElectionType::Normal, 0)), NolerElectionRet::ResponseVote((1, 1))),
+        // ]));
+    }
+}

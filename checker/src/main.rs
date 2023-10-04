@@ -1,18 +1,17 @@
+use checker::semantics::NolerStore;
+use checker::leaderelection_tester::LeaderElectionTester;
 use noler::message::ElectionType;
 use noler::constants::*;
 use noler::role::Role;
-//use noler::leaderelection_tester::LeaderElectionTester;
 use noler::monitor::{Profile, NolerMonitorMatrix};
 use noler::config::{ConfigSr, ReplicaSr};
 use checker::logsr::{LogSR, LogEntryState};
 
 use checker::kvstoresr::KVStoreSR;
 
-use stateright::actor::register::{RegisterActor, RegisterMsg, RegisterMsg::*};
+use checker::election_actor::{KvStoreMsg, KvStoreMsg::*, NolerStoreActor};
 use stateright::actor::{majority, model_peers, Actor, ActorModel, Id, Network, Out};
 use stateright::report::WriteReporter;
-use stateright::semantics::register::Register;
-use stateright::semantics::LinearizabilityTester;
 use stateright::util::HashableHashMap;
 use stateright::{Checker, Expectation, Model};
 use std::borrow::Cow;
@@ -23,11 +22,9 @@ use rand::Rng;
 
 type Ballot = (u32, u64);
 type RequestId = u64;
-type Value = char;
-type Request = (RequestId, Id, Option<Value>);
-//type ValueNoler = (u64, Option<String>); //KV Operation (key, option<value>)
-//type RequestNoler = (RequestId, Id, ValueNoler);
-
+type Request = (RequestId, Id, Key, Option<Value>);
+type Key = u64;
+type Value = u64;
 
 use checker::noler_msg_checker::NolerMsg::*;
 use checker::noler_msg_checker::ElectionTimer::*;
@@ -61,8 +58,7 @@ struct NolerActor {
 
 
 impl Actor for NolerActor {
-    type Msg = RegisterMsg<RequestId, Value, checker::noler_msg_checker::NolerMsg>;
-    //type Msg = RegisterMsg<RequestId, ValueNoler, noler::noler_msg_checker::NolerMsg>;
+    type Msg = KvStoreMsg<RequestId, Key, Value, checker::noler_msg_checker::NolerMsg>;
     type State  = NolerState;
     type Timer = checker::noler_msg_checker::ElectionTimer;
 
@@ -83,7 +79,8 @@ impl Actor for NolerActor {
                     continue;
                 }
 
-                let profile = Profile::new(rand::thread_rng().gen_range(0..100));
+                //let profile = Profile::new(rand::thread_rng().gen_range(0..100));
+                let profile = Profile::new(((j.wrapping_mul(37)^i.wrapping_mul(73)) % 101) as u8);
 
                 matrix.set(self.peer_ids[i], profile).unwrap();
             }
@@ -141,7 +138,7 @@ impl Actor for NolerActor {
     ) {
 
         match msg {
-            RegisterMsg::Put(request_id, value) if state.status == NORMAL && state.leader.is_some() => {
+            KvStoreMsg::Set(request_id, key, value) if state.status == NORMAL && state.leader.is_some() => {
                 log::info!("{}: received Put request from {}", idx, src);
                 let state = state.to_mut();
 
@@ -149,9 +146,10 @@ impl Actor for NolerActor {
                     //Forward to the leader
                     o.send(
                         state.leader.unwrap(),
-                        Internal(PutInternal {
+                        Internal(SetInternal {
                             src,
                             request_id,
+                            key,
                             value,
                         }),
                     );
@@ -160,10 +158,11 @@ impl Actor for NolerActor {
 
 
                 //let request_entry = state.log.find_by_request_id(request_id);
-                let request_entry = state.log.find_by_request((request_id, src, Option::from(value)));
+                //let request_entry = state.log.find_by_request((request_id, src, Option::from(value)));
+                let request_entry = state.log.find_by_request((request_id, src, key, Option::from(value)));
 
                 if request_entry.is_some() {
-                    log::info!("{}: PUT request already in the log with ballot: {:?}", idx, request_entry.unwrap().ballot);
+                    log::info!("{}: SET request already in the log with ballot: {:?}", idx, request_entry.unwrap().ballot);
 
                     let entry_state = &request_entry.unwrap().state;
 
@@ -214,7 +213,7 @@ impl Actor for NolerActor {
                     //Add to the log and broadcast the request to peers
                     log::info!("{}: adding PUT request to the log", idx);
                     let ballot = (state.ballot.0, state.ballot.1 + 1);
-                    let request = (request_id, src, Option::from(value));
+                    let request = (request_id, src, key, Option::from(value));
 
                     state.log.append(ballot, request, None, LogEntryState::Propose);
 
@@ -229,10 +228,10 @@ impl Actor for NolerActor {
                 }
             }
 
-            Internal(PutInternal {request_id, src, value}) if state.status == NORMAL && state.role == Role::Leader =>  {
+            Internal(SetInternal {request_id, src, key, value}) if state.status == NORMAL && state.role == Role::Leader =>  {
                 let state = state.to_mut();
 
-                let request_entry = state.log.find_by_request((request_id, src, Option::from(value)));
+                let request_entry = state.log.find_by_request((request_id, src, key, Option::from(value)));
 
                 if request_entry.is_some() {
                     log::info!("{}: PUT request already in the log with ballot: {:?}", idx, request_entry.unwrap().ballot);
@@ -286,7 +285,7 @@ impl Actor for NolerActor {
                     //Add to the log and broadcast the request to peers
                     log::info!("{}: adding request to the log", idx);
                     let ballot = (state.ballot.0, state.ballot.1 + 1);
-                    let request = (request_id, src, Option::from(value));
+                    let request = (request_id, src, key, Option::from(value));
                     state.log.append(ballot, request, None, LogEntryState::Propose);
 
                     o.broadcast(
@@ -300,8 +299,8 @@ impl Actor for NolerActor {
                 }
             }
 
-            RegisterMsg::Get(request_id) if state.status == NORMAL && state.leader.is_some() => {
-                log::info!("{}: received Get request from {}", idx, src);
+            KvStoreMsg::Get(request_id, key) if state.status == NORMAL && state.leader.is_some() => {
+                log::info!("{}: received Get request from {} with Get:[{}]", idx, src, key);
                 let state = state.to_mut();
 
                 if state.role != Role::Leader {
@@ -312,13 +311,14 @@ impl Actor for NolerActor {
                             id: idx,
                             src,
                             request_id,
+                            key,
                         }),
                     );
                     return;
                 }
 
                 //We need to check the status of the put request for the request_id in the message
-                let request_entry = state.log.get_by_request_id(request_id);
+                let request_entry = state.log.get_by_request_id(request_id, key);
 
                 if request_entry.is_some(){
                     //We retrieve the value from the kvstore | there is a PutOk
@@ -326,7 +326,7 @@ impl Actor for NolerActor {
                     //Send the response to the client
                     o.send(
                         src,
-                        state.data.get(request_id),
+                        state.data.get(request_id, key),
                     );
                 }
 
@@ -403,13 +403,13 @@ impl Actor for NolerActor {
                 // }
             }
 
-            Internal(GetInternal {id, src, request_id}) => if state.status == NORMAL && state.role == Role::Leader {
+            Internal(GetInternal {id, src, request_id, key}) => if state.status == NORMAL && state.role == Role::Leader {
                 let state = state.to_mut();
 
-                log::info!("{}: received Get Internal request from {} and origin {}", idx, id, src);
+                log::info!("{}: received Get Internal request from {} and origin {} with GET:[{}]", idx, id, src, key);
 
                 //We need to check the status of the put request for the request_id in the message
-                let request_entry = state.log.get_by_request_id(request_id);
+                let request_entry = state.log.get_by_request_id(request_id, key);
 
                 if request_entry.is_some(){
                     //We retrieve the value from the kvstore | there is a PutOk
@@ -417,7 +417,7 @@ impl Actor for NolerActor {
                     //Send the response to the client
                     o.send(
                         src,
-                        state.data.get(request_id),
+                        state.data.get(request_id, key),
                     );
 
                     log::info!("{}: Sent GET response to client {}", idx, src);
@@ -1102,9 +1102,9 @@ impl Actor for NolerActor {
                             state.commit_index = ballot.1;
 
                             //Determine the type of operation
-                            if request.2.is_none() {
+                            if request.3.is_none() {
                                 //GET request - execute on the kvstore
-                                let result = state.data.get(request.0);
+                                let result = state.data.get(request.0, request.2);
 
                                 //Set the log with the result of the kvstore execution
                                 state.log.set_reply(ballot, result.clone());
@@ -1132,7 +1132,7 @@ impl Actor for NolerActor {
 
                             else {
                                 //PUT request - execute on the kvstore
-                                let result = state.data.put(request.0, request.2.unwrap());
+                                let result = state.data.set(request.0, request.2, request.3.unwrap());
 
                                 //Set the log with the result of the kvstore execution
                                 state.log.set_reply(ballot, result.clone());
@@ -1201,9 +1201,9 @@ impl Actor for NolerActor {
                             match state.role {
                                 Role::Candidate => {
                                     //Check the type of request
-                                    if request.2.is_none() {
+                                    if request.3.is_none() {
                                         //GET request - execute on the kvstore
-                                        let result = state.data.get(request.0);
+                                        let result = state.data.get(request.0, request.2);
 
                                         //Set the log with the result of the kvstore execution
                                         state.log.set_reply(ballot, result.clone());
@@ -1215,7 +1215,7 @@ impl Actor for NolerActor {
 
                                     else {
                                         //PUT request - execute on the kvstore
-                                        let result = state.data.put(request.0, request.2.unwrap());
+                                        let result = state.data.set(request.0, request.2, request.3.unwrap());
 
                                         //Set the log with the result of the kvstore execution
                                         state.log.set_reply(ballot, result.clone());
@@ -1400,6 +1400,8 @@ impl Actor for NolerActor {
                         );
                     }
                 }
+
+                _ => {}//ToDo
             }
     }
 
@@ -1418,21 +1420,21 @@ impl NolerModelCfg {
     fn into_model(
         self,
     ) -> ActorModel<
-        RegisterActor<NolerActor>,
+        NolerStoreActor<NolerActor>,
         Self,
-        LinearizabilityTester<Id, Register<Value>>>
+        LeaderElectionTester<Id, NolerStore<Key, Value>>>
     {
         ActorModel::new(
             self.clone(),
-            LinearizabilityTester::new(Register(Value::default())),
+            LeaderElectionTester::new(NolerStore(0, 0)),
         )
         .actors((0..self.peer_count).map(|i| {
-            RegisterActor::Server(NolerActor {
+            NolerStoreActor::Server(NolerActor {
                 peer_ids: model_peers(i, self.peer_count),
             })
         }))
-        .actors((0..self.client_count).map(|_| RegisterActor::Client {
-            put_count: 1,
+        .actors((0..self.client_count).map(|_| NolerStoreActor::Client {
+            set_count: 1,
             server_count: self.peer_count,
         }))
         .init_network(self.network)
@@ -1459,16 +1461,16 @@ impl NolerModelCfg {
         // })
         .property(Expectation::Sometimes, "value chosen", |_, state| {
             for env in state.network.iter_deliverable() {
-                if let RegisterMsg::GetOk(_req_id, value) = env.msg {
-                    if *value != Value::default() {
+                if let KvStoreMsg::GetOk(_req_id, key, value) = env.msg {
+                    if *value != 0 && *key != 0 { 
                         return true;
                     }
                 }
             }
             false
         })
-        .record_msg_in(RegisterMsg::record_returns)
-        .record_msg_out(RegisterMsg::record_invocations)
+        .record_msg_in(KvStoreMsg::record_returns)
+        .record_msg_out(KvStoreMsg::record_invocations)
     }
 }
 
@@ -1508,7 +1510,7 @@ fn main() -> Result<(), pico_args::Error> {
 
             NolerModelCfg {
                 client_count: 1,
-                peer_count: 3,
+                peer_count: 5,
                 network,
             }
             .into_model()
@@ -1545,11 +1547,11 @@ fn main() -> Result<(), pico_args::Error> {
             println!("You can send them messages with `nc localhost {}`", port);
             println!(
                 "{}",
-                serde_json::to_string(&RegisterMsg::Put::<RequestId, Value, ()>(1, 'X')).unwrap()
+                serde_json::to_string(&KvStoreMsg::Set::<RequestId, Key, Value, ()>(1, 1, 111)).unwrap()
             );
             println!(
                 "{}",
-                serde_json::to_string(&RegisterMsg::Get::<RequestId, Value, ()>(2)).unwrap()
+                serde_json::to_string(&KvStoreMsg::Get::<RequestId, Key, Value, ()>(1, 1)).unwrap()
             );
             println!();
 

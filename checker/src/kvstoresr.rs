@@ -1,13 +1,14 @@
 use stateright::util::HashableHashMap;
-use stateright::actor::register::RegisterMsg;
 use crate::noler_msg_checker::NolerMsg;
+use crate::election_actor::KvStoreMsg;
 
 type RequestId = u64;
-type Value = char;
+type Key = u64;
+type Value = u64;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct KVStoreSR {
-    data: HashableHashMap<u64, char>,
+    data: HashableHashMap<u64, u64>,
 }
 
 impl KVStoreSR {
@@ -17,16 +18,16 @@ impl KVStoreSR {
         }
     }
 
-    pub fn put(&mut self, key: u64, value: char) -> RegisterMsg<RequestId, Value, NolerMsg> {
+    pub fn set(&mut self, request_id: u64, key: u64, value: u64) -> KvStoreMsg<RequestId, Key, Value, NolerMsg> {
         self.data.insert(key, value);
-        RegisterMsg::PutOk(key)
+        KvStoreMsg::SetOk(request_id, key)
     }
 
-    pub fn get(&self, key: u64) -> RegisterMsg<RequestId, Value, NolerMsg> {
+    pub fn get(&self, request_id: u64, key: u64) -> KvStoreMsg<RequestId, Key, Value, NolerMsg> {
         if self.data.contains_key(&key) {
-            RegisterMsg::GetOk(key, *self.data.get(&key).unwrap())
+            KvStoreMsg::GetOk(request_id, key, *self.data.get(&key).unwrap())
         } else {
-            RegisterMsg::GetOk(key, '?')
+            KvStoreMsg::GetOk(request_id, key, 0)
         }
     }
 }

@@ -1,7 +1,10 @@
 use std::sync::{Arc, Mutex, Condvar};
 use std::time::Duration;
 use std::thread;
+// use std::net::SocketAddr;
+// use crossbeam_channel::{Receiver, Sender, unbounded};
 
+// use crate::message::ChannelMessage;
 pub struct Timeout {
     duration: u64,
     callback: Option<Arc<Mutex<Box<dyn Fn() + Send + Sync>>>>,
@@ -96,3 +99,18 @@ impl Timeout {
         }
     }
 }
+// pub fn create_timeout(
+//     duration: u64,
+//     message: &str,
+//     tx: Sender<ChannelMessage>,
+//     replica_address: SocketAddr,
+// ) -> Timeout {
+//     Timeout::new(duration, Box::new(move || {
+//         tx.send(ChannelMessage {
+//             channel: "Tx".to_string(),
+//             src: replica_address,
+//             message: message.to_string(),
+//         })
+//         .unwrap();
+//     }))
+// }

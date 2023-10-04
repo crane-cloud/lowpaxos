@@ -13,3 +13,9 @@ impl Role {
         Role::Member
     }
 }
+
+impl Default for Role {
+    fn default() -> Self {
+        Role::Member
+    }
+}

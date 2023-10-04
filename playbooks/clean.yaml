@@ -1,0 +1,19 @@
+- hosts: peer-cloudlab
+  become: yes
+  tasks:
+  - name: Get Noler PIDs
+    shell:
+      cmd: ps -ef | grep -v grep | grep -w noler | awk '{print $2}' | awk 'FNR == 1 {print}'
+      warn: false
+    changed_when: false
+    check_mode: false
+    register: noler_pids
+
+  - name: Kill running processes
+    shell: "kill {{ item }}"
+    with_items:
+    - "{{ noler_pids.stdout_lines }}"
+
+  - name: Show PIDs
+    debug:
+      var: noler_pids

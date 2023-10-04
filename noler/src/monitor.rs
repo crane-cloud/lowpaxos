@@ -2,7 +2,7 @@ use stateright::actor::Id;
 //use std::collections::HashMap;
 use stateright::util::HashableHashMap;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Profile {
     pub x: u8,
 }
@@ -41,7 +41,7 @@ impl ProfileMatrix {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
 pub struct NolerMonitorMatrix {
     pub profile_matrix: HashableHashMap<Id, Profile>,
 }

@@ -1,8 +1,64 @@
 // use std::fmt::Result;
 use serde::{Serialize, Deserialize};
 use stateright::util::HashableHashMap;
+use bincode::{serialize, deserialize};
 // use stateright::actor::register::RegisterMsg;
 // use noler::noler_msg_checker::NolerMsg;
+
+type Key = String;
+type Value = String;
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub enum Operation<Key, Value> {
+    SET(Key, Value),
+    GET(Key),
+}
+
+impl<'a, Key, Value> Operation<Key, Value>
+where
+    Key: Serialize + Deserialize<'a>,
+    Value: Serialize + Deserialize<'a>,
+{
+    // Serialize the Operation to bytes
+    pub fn to_bytes(&self) -> Result<Vec<u8>, bincode::Error> {
+        serialize(self)
+    }
+
+    // Deserialize bytes into KvStoreMsg
+    pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, bincode::Error> {
+        deserialize(bytes)
+    }
+}
+
+
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub enum KvStoreMsg<Key, Value> {
+    SetOk(Key),
+    GetOk(Key, Value),
+    None,
+}
+
+impl<'a, Key, Value> KvStoreMsg<Key, Value>
+where
+    Key: Serialize + Deserialize<'a>,
+    Value: Serialize + Deserialize<'a>,
+{
+    // Serialize the KvStoreMsg to bytes
+    pub fn to_bytes(&self) -> Result<Vec<u8>, bincode::Error> {
+        serialize(self)
+    }
+
+    // Deserialize bytes into KvStoreMsg
+    pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, bincode::Error> {
+        deserialize(bytes)
+    }
+}
+
+
+
+
+
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]// Define the KeyValueStore struct
 pub struct KVStore {
@@ -16,18 +72,17 @@ impl KVStore{
         }
     }
 
-    pub fn get(&self, key: &str) -> Option<String> {
+    pub fn get(&self, key: &str) -> KvStoreMsg<Key, Value> {
         if self.data.contains_key(key) {
-            println!("Key found in GET - {}", key);
-            self.data.get(key).cloned()
+            KvStoreMsg::GetOk(key.to_string(), self.data.get(key).unwrap().to_string())
         } else {
-            println!("Key not found in GET");
-            None
+            KvStoreMsg::None
         }
     }
 
-    pub fn set(&mut self, key: String, value: String) {
+    pub fn set(&mut self, key: String, value: String) -> KvStoreMsg<Key, Value> {
         self.data.insert(key.to_string(), value.to_string());
+        KvStoreMsg::SetOk(key)
     }
 
     pub fn delete(&mut self, key: &str)  {

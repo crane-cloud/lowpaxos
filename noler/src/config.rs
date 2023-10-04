@@ -70,6 +70,23 @@ impl Config {
     pub fn quorum(&self) -> usize {
         self.quorum_size()
     }
+
+    // Method to remove a replica
+    pub fn remove_replica(&mut self, replica_id: u32) {
+        if let Some(index) = self.replicas.iter().position(|r| r.id == replica_id) {
+            self.replicas.remove(index);
+            self.n -= 1;
+            //self.f -= 1; System-wide setting
+        }
+    }
+
+    // Method to add a replica
+    pub fn add_replica(&mut self, replica: Replica) {
+        self.replicas.push(replica);
+        self.n += 1;
+        //self.f += 1; System-wide set
+    }
+
 }
 
 impl ReplicaConfig {
@@ -87,7 +104,7 @@ impl ReplicaConfig {
 
 //Stateright versions
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash, PartialEq, Copy)]
 pub struct ReplicaSr {
     pub id: Id,
     pub status: u8,
@@ -97,6 +114,7 @@ pub struct ReplicaSr {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash, PartialEq)]
 pub struct ConfigSr {
+    pub leader: Id,
     pub ballot: (u32, u64),
     pub n: usize,
     pub replicas: Vec<ReplicaSr>,
@@ -117,6 +135,7 @@ impl ReplicaSr {
 impl ConfigSr {
     pub fn new(ballot: (u32, u64), n: usize, replicas: Vec<ReplicaSr>) -> ConfigSr {
         ConfigSr{
+            leader: Id::default(),
             ballot,
             n,
             replicas,

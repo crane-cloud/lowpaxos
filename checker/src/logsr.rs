@@ -1,15 +1,16 @@
 use crate::noler_msg_checker::NolerMsg;
 
 use serde::{Serialize, Deserialize};
-use stateright::actor::register::RegisterMsg;
+use crate::election_actor::KvStoreMsg;
 
 use stateright::actor::Id;
 
 //SR Log
 type Ballot = (u32, u64);
 type RequestId = u64;
-type Value = char;
-type Request = (RequestId, Id, Option<Value>);
+type Key = u64;
+type Value = u64;
+type Request = (RequestId, Id, Key, Option<Value>);
 
 // Define the LogEntryState enum
 #[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Clone)]
@@ -26,7 +27,7 @@ pub struct LogEntrySR {
     pub ballot: Ballot,
     pub state: LogEntryState,
     pub request: Request,
-    pub reply: Option<RegisterMsg<RequestId, Value, NolerMsg>>,
+    pub reply: Option<KvStoreMsg<RequestId, Key, Value, NolerMsg>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Clone)]
@@ -46,7 +47,7 @@ impl LogSR {
     }
 
     // Append a new log entry
-    pub fn append(&mut self, ballot: Ballot, request: Request, reply: Option<RegisterMsg<u64, char, NolerMsg>>, state: LogEntryState) -> &mut LogEntrySR {
+    pub fn append(&mut self, ballot: Ballot, request: Request, reply: Option<KvStoreMsg<u64, u64, u64,  NolerMsg>>, state: LogEntryState) -> &mut LogEntrySR {
 
         let new_entry = LogEntrySR {
             ballot,
@@ -85,8 +86,8 @@ impl LogSR {
     }
 
     //Find a log entry by request_id
-    pub fn get_by_request_id(&self, request_id: RequestId) -> Option<&LogEntrySR> {
-        if let Some(entry) = self.entries.iter().find(|&entry| entry.reply == Some(RegisterMsg::PutOk(request_id))) {
+    pub fn get_by_request_id(&self, request_id: RequestId, key: u64) -> Option<&LogEntrySR> {
+        if let Some(entry) = self.entries.iter().find(|&entry| entry.reply == Some(KvStoreMsg::SetOk(request_id, key))) {
             Some(entry)
         } else {
             None
@@ -104,7 +105,7 @@ impl LogSR {
     }
 
     //Set the reply of a log entry
-    pub fn set_reply(&mut self, ballot: Ballot, reply: RegisterMsg<u64, char, NolerMsg>) -> bool {
+    pub fn set_reply(&mut self, ballot: Ballot, reply: KvStoreMsg<u64, u64, u64, NolerMsg>) -> bool {
         if let Some(entry) = self.find_mut(ballot) {
             entry.reply = Some(reply);
             true

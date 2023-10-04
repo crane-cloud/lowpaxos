@@ -1,9 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, net::SocketAddr};
+
+type Ballot = (u32, u64);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct QuorumSet<IDTYPE: std::cmp::Eq + std::hash::Hash, MSGTYPE> {
     num_required: i32,
-    messages: HashMap<IDTYPE, HashMap<i32, MSGTYPE>>,
+    messages: HashMap<IDTYPE, HashMap<SocketAddr, MSGTYPE>>,
 }
 
 impl<IDTYPE, MSGTYPE> QuorumSet<IDTYPE, MSGTYPE>
@@ -29,11 +31,11 @@ where
         self.num_required
     }
 
-    pub fn get_messages(&self, vs: IDTYPE) -> Option<&HashMap<i32, MSGTYPE>> {
+    pub fn get_messages(&self, vs: IDTYPE) -> Option<&HashMap<SocketAddr, MSGTYPE>> {
         self.messages.get(&vs)
     }
 
-    pub fn check_for_quorum(&self, vs: IDTYPE) -> Option<&HashMap<i32, MSGTYPE>> {
+    pub fn check_for_quorum(&self, vs: IDTYPE) -> Option<&HashMap<SocketAddr, MSGTYPE>> {
         if let Some(vsmessages) = self.messages.get(&vs) {
             if vsmessages.len() >= self.num_required as usize {
                 return Some(vsmessages);
@@ -45,9 +47,9 @@ where
     pub fn add_and_check_for_quorum(
         &mut self,
         vs: IDTYPE,
-        replica_idx: i32,
+        replica_idx: SocketAddr,
         msg: MSGTYPE,
-    ) -> Option<&HashMap<i32, MSGTYPE>> {
+    ) -> Option<&HashMap<SocketAddr, MSGTYPE>> {
         let vsmessages = self.messages.entry(vs.clone()).or_insert(HashMap::new());
 
         vsmessages.insert(replica_idx, msg);
@@ -55,7 +57,7 @@ where
         self.check_for_quorum(vs)
     }
 
-    pub fn add(&mut self, vs: IDTYPE, replica_idx: i32, msg: MSGTYPE) {
+    pub fn add(&mut self, vs: IDTYPE, replica_idx: SocketAddr, msg: MSGTYPE) {
         self.add_and_check_for_quorum(vs, replica_idx, msg);
     }
 }

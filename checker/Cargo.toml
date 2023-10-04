@@ -27,3 +27,11 @@ path = "src/main.rs"
 [[bin]]
 name = "paxos"
 path = "src/paxos.rs"
+
+[[bin]]
+name = "noler"
+path = "src/noler.rs"
+
+[[bin]]
+name = "nolerops"
+path = "src/noleropsr.rs"

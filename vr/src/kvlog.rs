@@ -68,6 +68,17 @@ impl Log {
         self.entries.last_mut().unwrap()
     }
 
+    //Return log entries from one operation number to another
+    pub fn get_entries(&self, start: u64, end: u64) -> Vec<&LogEntry> {
+        let mut entries = Vec::new();
+        for i in start..=end {
+            if let Some(entry) = self.find(i) {
+                entries.push(entry);
+            }
+        }
+        entries
+    }
+
     // Find a log entry by operation number
     pub fn find(&self, opnum: u64) -> Option<&LogEntry> {
         //println!("viewstamp (view-last_op): <{} - {}> ; opnum: {}", entry.viewstamp.0, entry.viewstamp.1, opnum);

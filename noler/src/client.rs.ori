@@ -1,0 +1,158 @@
+use noler::utility::parse_configuration;
+use noler::transport::Transport;
+use noler::config::Config;
+use noler::message::RequestMessage;
+use common::utility::{wrap_and_serialize, generate_random_key};
+
+
+use clap::{Arg, App};
+//use std::time::Instant;
+use std::thread;
+use std::sync::Arc;
+use std::net::SocketAddr;
+use std::time::Duration;
+use std::thread::sleep;
+use rand::Rng;
+//use rand::distributions::Distribution;
+use rand::prelude::*;
+use rand_distr::Zipf;
+use rand_distr::{Poisson, Distribution};
+
+pub struct NolerClient {
+    id: u32,
+    address: SocketAddr,
+    config: Config,
+    transport: Arc<Transport>,
+    req_id: u64,
+    //leader: Option<SocketAddr>,
+}
+
+impl NolerClient {
+    fn new(id: u32, address: SocketAddr, config: Config) -> NolerClient {
+        let transport = Transport::new(address);
+        NolerClient {
+            id,
+            address,
+            config: config,
+            transport: Arc::new(transport),
+            req_id: 0,
+            //leader: None,
+        }
+    }
+
+    pub fn start_noler_client(&mut self, requests: u32) {
+        println!("{}: starting the noler client", self.id);
+
+        let mut rng = rand::thread_rng();
+        let zipf = zipf::ZipfDistribution::new(10000, 2.5).unwrap();
+        let sample = zipf.sample(&mut rng);
+        println!("Sample: {}", sample);
+
+
+        let val: f64 = thread_rng().sample(Zipf::new(10000, 2.5).unwrap());
+        println!("Sample: {}", val);
+
+        let poi = Poisson::new(100.0).unwrap();
+        let v = poi.sample(&mut rand::thread_rng());
+        println!("{} is from a Poisson(2) distribution", v);
+
+        // Generate random keys and values for the requests
+        for _ in 0..requests {
+            sleep(Duration::from_millis(10));
+            // Generate a random request
+            let operation = match rand::thread_rng().gen_range(0..1) {
+                0 => "SET",
+                //1 => "delete",
+                //2 => "append",
+                //4 => "get",
+                _ => panic!("Invalid operation"),
+            };
+
+            let key = generate_random_key();
+            let value = rand::thread_rng().gen_range(1..1000).to_string();
+
+            println!("Client: Sending request {} {} {}", operation, key, value);
+
+            match operation {
+                "SET" => {
+                    self.send_request(format!("SET {} {}", key, value).as_bytes().to_vec());
+                },
+                _ => {
+                    println!("Unknown operation: {}", operation);
+                    continue; // Skip processing if unknown message type
+                }
+            }
+
+        }
+    }
+
+        fn send_request(&mut self, op: Vec<u8>) {
+            self.req_id += 1;
+
+            let request_message = RequestMessage {
+                client_id: self.address,
+                request_id: self.req_id,
+                operation: op,
+            };
+
+            let serialized_request = wrap_and_serialize(
+                "RequestMessage", 
+                serde_json::to_string(&request_message).unwrap()
+            );
+
+            let _ = self.transport.send(
+                &self.config.replicas[0].replica_address,
+                &mut serialized_request.as_bytes(),
+            );
+        }
+}
+
+
+fn main() {
+    let matches = App::new("Noler Client")
+        .arg(Arg::with_name("config")
+            .short('c')
+            .long("config")
+            .value_name("FILE")
+            .help("Sets a custom config file")
+            .takes_value(true)
+            .required(true))
+        .arg(Arg::with_name("requests")
+            .short('n')
+            .long("requests")
+            .value_name("REQUESTS")
+            .help("Number of requests per client thread")
+            .default_value("1"))
+        .arg(Arg::with_name("threads")
+            .short('t')
+            .long("threads")
+            .value_name("THREADS")
+            .help("Number of client threads")
+            .default_value("1"))
+        .get_matches();
+
+    let threads = matches.value_of("threads").unwrap().parse::<u32>().unwrap();
+    let requests = matches.value_of("requests").unwrap().parse::<u32>().unwrap();
+    let config_file = matches.value_of("config").unwrap();
+
+    let address = "127.0.0.1:32000".parse().unwrap();
+
+    //let transport = Transport::new(address);
+
+    let handles = (0..threads).map(|_| {
+        let config = parse_configuration(config_file);
+
+        thread::spawn(move || {
+            let mut client = NolerClient::new(0, address, config);
+            //let request_start = Instant::now();
+            //let request_end = Instant::now();
+            //println!("Client ?: {} requests took {}ms", requests, request_end.duration_since(request_start).as_millis());
+            client.start_noler_client(requests);
+        })
+    }).collect::<Vec<_>>();
+
+    // Wait for all threads to complete
+    for handle in handles {
+        handle.join().unwrap();
+    }
+}

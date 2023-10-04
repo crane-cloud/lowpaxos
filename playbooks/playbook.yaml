@@ -1,0 +1,86 @@
+---
+- hosts: peer-cloudlab
+  remote_user: ubuntu
+  become: false
+
+  pre_tasks:
+  - name: update repositories
+    apt: update_cache=yes
+    become_user: root
+    changed_when: False
+
+  tasks:
+  - name: check if cargo is installed
+    shell: command -v cargo
+    register: cargo_exists
+    ignore_errors: yes
+
+  - name: Download Installer
+    when: cargo_exists is failed
+    get_url:
+      url: https://sh.rustup.rs
+      dest: /tmp/sh.rustup.rs
+      mode: '0755'
+      force: 'yes'
+    tags:
+      - rust
+
+  - name: install rust/cargo
+    when: cargo_exists is failed
+    shell: /tmp/sh.rustup.rs -y
+    tags:
+      - rust
+
+  - name: Clone the LowPaxos github repository
+    git:
+      repo: https://github.com/crane-cloud/lowpaxos
+      dest: /home/ubuntu/lowpaxos
+      version: performance
+      clone: yes
+      update: yes
+  - name: Start a noler peer
+    command: cargo run --bin noler -- -c config.txt
+    args:
+      chdir: /home/ubuntu/lowpaxos/noler
+
+
+- hosts: client-cloudlab
+  pre_tasks:
+  - name: update repositories
+    apt: update_cache=yes
+    become_user: root
+    changed_when: False
+
+  tasks:
+  - name: check if cargo is installed
+    shell: command -v cargo
+    register: cargo_exists
+    ignore_errors: yes
+
+  - name: Download Installer
+    when: cargo_exists is failed
+    get_url:
+      url: https://sh.rustup.rs
+      dest: /tmp/sh.rustup.rs
+      mode: '0755'
+      force: 'yes'
+    tags:
+      - rust
+
+  - name: install rust/cargo
+    when: cargo_exists is failed
+    shell: /tmp/sh.rustup.rs -y
+    tags:
+      - rust
+
+  - name: Clone the LowPaxos github repository
+    git:
+      repo: https://github.com/crane-cloud/lowpaxos
+      dest: /home/ubuntu/lowpaxos
+      version: performance
+      clone: yes
+      update: yes
+  - name: Start a noler client
+    command: cargo run --bin noler-client -- -c config.txt -f log.txt -n 100
+    args:
+      chdir: /home/ubuntu/lowpaxos/noler

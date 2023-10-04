@@ -3,12 +3,13 @@ use serde::{Serialize, Deserialize};
 
 use crate::role::Role;
 use crate::config::Config;
-use crate::log::Log;
+use crate::log::{Log, LogEntry};
 
 
 #[derive(Debug)]
 pub struct ChannelMessage {
     pub channel: String,
+    pub src: SocketAddr,
     pub message: String,
 }
 
@@ -20,6 +21,12 @@ pub enum ElectionType {
     Profile,
     Timeout,
     Degraded,
+}
+
+impl Default for ElectionType {
+    fn default() -> Self {
+        ElectionType::Normal
+    }
 }
 
 pub enum TimeoutType {
@@ -108,6 +115,63 @@ pub struct PollLeaderOkMessage {
     pub replica_profile: u8,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RequestMessage {
+    pub client_id: SocketAddr,
+    pub request_id: u64,
+    pub operation: Vec<u8>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ResponseMessage {
+    pub request_id: u64,
+    pub reply: Vec<u8>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProposeMessage {
+    pub ballot: (u32, u64),
+    pub request: RequestMessage,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProposeOkMessage {
+    pub ballot: (u32, u64),
+    pub commit_index: u64,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CommitMessage {
+    pub ballot: (u32, u64),
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RequestStateMessage {
+    pub ballot: (u32, u64),
+    pub commit_index: u64,
+}
+
+// #[allow(dead_code)]
+// #[derive(Debug, Serialize, Deserialize)]
+// pub struct ResponseStateMessage {
+//     pub ballot: (u32, u64),
+//     pub commit_index: u64,
+//     pub log: Log,
+// }
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LogStateMessage {
+    pub ballot: (u32, u64),
+    pub commit_index: u64,
+    pub log: Vec<u8>,
+}
 
 
 
@@ -132,48 +196,6 @@ pub struct ConfigureReplicaMessage {
 
 
 #[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct RequestMessage {
-    client_id: SocketAddr,
-    request_id: u64,
-    operation: Vec<u8>,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ResponseMessage {
-    request_id: u64,
-    reply: Vec<u8>,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProposeMessage {
-    leader_address: SocketAddr,
-    propose_term: u32,
-    propose_number: u64,
-    request: RequestMessage,
-
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ProposeOkMessage {
-    replica_address: SocketAddr,
-    propose_term: u32,
-    propose_number: u64,
-    commit_index: u64,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CommitMessage {
-    replica_address: SocketAddr,
-    propose_term: u32,
-    propose_number: u64,
-}
-
-#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChangeConfigMessage {
     leader_address: SocketAddr,
@@ -181,15 +203,6 @@ pub struct ChangeConfigMessage {
     propose_number: u64,
     //commit_index: u64,
     config: Config,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RequestStateMessage {
-    replica_address: SocketAddr,
-    propose_term: u32,
-    propose_number: u64,
-    commit_index: u64,
 }
 
 #[allow(dead_code)]

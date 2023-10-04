@@ -1,5 +1,7 @@
 use std::io::{BufRead, BufReader};
 use std::fs::File;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use crate::configuration::{Config, ReplicaAddress};
 use crate::message::MessageWrapper;
 
@@ -64,4 +66,16 @@ pub fn wrap_and_serialize(meta: &str, data: String) -> String {
     let serialized_meta = serde_json::to_string(&wrapper).unwrap();
 
     serialized_meta
+}
+
+pub fn generate_random_key() -> String {
+    let prefix: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(5)
+        .map(char::from)
+        .collect();
+
+    let random_key: u32 = rand::thread_rng().gen_range(1..1000);
+
+    format!("{}-{}", prefix, random_key)
 }

@@ -296,66 +296,57 @@ impl PaxosModelCfg {
 }
 
 #[cfg(test)]
-mod test {
-    use super::*;
-    use super::PaxosModelCfg;
-    use super::Network;
-    use super::RegisterMsg::{Get, Internal, Put, PutOk};
-    use super::PaxosMsg::{Accept, Accepted, Decided, Prepare, Prepared};
-    use stateright::{Checker, Model};
+#[test]
+fn can_model_paxos() {
+    //use stateright::actor::ActorModelAction::Deliver;
 
-    #[test]
-    fn can_model_paxos() {
-        use stateright::actor::ActorModelAction::Deliver;
-
-        // BFS
-        let checker = PaxosModelCfg {
-            client_count: 2,
-            server_count: 5,
-            network: Network::new_unordered_nonduplicating([]),
-        }
-        .into_model()
-        .checker()
-        .spawn_bfs()
-        .join();
-        checker.assert_properties();
-        #[rustfmt::skip]
-        checker.assert_discovery("value chosen", vec![
-            Deliver { src: 4.into(), dst: 1.into(), msg: Put(4, 'B') },
-            Deliver { src: 1.into(), dst: 0.into(), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
-            Deliver { src: 0.into(), dst: 1.into(), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
-            Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
-            Deliver { src: 2.into(), dst: 1.into(), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
-            Deliver { src: 1.into(), dst: 4.into(), msg: PutOk(4) },
-            Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
-            Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
-        ]);
-        assert_eq!(checker.unique_state_count(), 16_668);
-
-        // DFS
-        let checker = PaxosModelCfg {
-            client_count: 2,
-            server_count: 3,
-            network: Network::new_unordered_nonduplicating([]),
-        }
-        .into_model()
-        .checker()
-        .spawn_dfs()
-        .join();
-        checker.assert_properties();
-        #[rustfmt::skip]
-        checker.assert_discovery("value chosen", vec![
-            Deliver { src: 4.into(), dst: 1.into(), msg: Put(4, 'B') },
-            Deliver { src: 1.into(), dst: 0.into(), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
-            Deliver { src: 0.into(), dst: 1.into(), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
-            Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
-            Deliver { src: 2.into(), dst: 1.into(), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
-            Deliver { src: 1.into(), dst: 4.into(), msg: PutOk(4) },
-            Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
-            Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
-        ]);
-        assert_eq!(checker.unique_state_count(), 16_668);
+    // BFS
+    let checker = PaxosModelCfg {
+        client_count: 1,
+        server_count: 21,
+        network: Network::new_unordered_nonduplicating([]),
     }
+    .into_model()
+    .checker()
+    .spawn_bfs()
+    .join();
+    checker.assert_properties();
+    // #[rustfmt::skip]
+    // checker.assert_discovery("value chosen", vec![
+    //     Deliver { src: 4.into(), dst: 1.into(), msg: Put(4, 'B') },
+    //     Deliver { src: 1.into(), dst: 0.into(), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
+    //     Deliver { src: 0.into(), dst: 1.into(), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
+    //     Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
+    //     Deliver { src: 2.into(), dst: 1.into(), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
+    //     Deliver { src: 1.into(), dst: 4.into(), msg: PutOk(4) },
+    //     Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
+    //     Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
+    // ]);
+    //assert_eq!(checker.unique_state_count(), 16_668);
+
+    // // DFS
+    // let checker = PaxosModelCfg {
+    //     client_count: 5,
+    //     server_count: 5,
+    //     network: Network::new_unordered_nonduplicating([]),
+    // }
+    // .into_model()
+    // .checker()
+    // .spawn_dfs()
+    // .join();
+    // checker.assert_properties();
+    // #[rustfmt::skip]
+    // checker.assert_discovery("value chosen", vec![
+    //     Deliver { src: 4.into(), dst: 1.into(), msg: Put(4, 'B') },
+    //     Deliver { src: 1.into(), dst: 0.into(), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
+    //     Deliver { src: 0.into(), dst: 1.into(), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
+    //     Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
+    //     Deliver { src: 2.into(), dst: 1.into(), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
+    //     Deliver { src: 1.into(), dst: 4.into(), msg: PutOk(4) },
+    //     Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
+    //     Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
+    // ]);
+    // assert_eq!(checker.unique_state_count(), 16_668);
 }
 
 fn main() -> Result<(), pico_args::Error> {

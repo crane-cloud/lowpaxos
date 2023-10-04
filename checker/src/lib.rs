@@ -1,8 +1,11 @@
 pub mod election_tester;
 pub mod leaderelection_tester;
+pub mod election_actor;
 
 pub mod kvstoresr;
 pub mod logsr;
+
+pub mod semantics;
 
 pub mod noler_msg_checker {
 
@@ -15,8 +18,9 @@ pub mod noler_msg_checker {
 
     type Ballot = (u32, u64);
     type RequestId = u64;
-    type Value = char;
-    type Request = (RequestId, Id, Option<Value>);
+    type Key = u64;
+    type Value = u64;
+    type Request = (RequestId, Id, Key, Option<Value>);
     // type ValueNoler = (u64, Option<String>); //KV Operation (key, option<String Value>)
     // type RequestNoler = (RequestId, Id, ValueNoler);
 
@@ -87,9 +91,10 @@ pub mod noler_msg_checker {
 
         //Paxos-related messages
 
-        PutInternal {
+        SetInternal {
            src: Id,
            request_id: RequestId,
+           key: Key,
            value: Value,
         },
 
@@ -97,7 +102,7 @@ pub mod noler_msg_checker {
             id: Id,
             src: Id,
             request_id: RequestId,
-            //value: Value,
+            key: Key,
         },
         
         Propose {
@@ -148,10 +153,10 @@ pub mod noler_msg_checker {
         LeaderInitTimeout,
         LeadershipVoteTimeout,
         LeaderVoteTimeout,
-        // LeaderLeaseTimeout,
-        // HeartBeatTimeout,
-        // PollLeaderTimeout,
-        // PollLeaderTimer,
+        LeaderLeaseTimeout,
+        HeartBeatTimeout,
+        PollLeaderTimeout,
+        PollLeaderTimer,
     }
 
 }
