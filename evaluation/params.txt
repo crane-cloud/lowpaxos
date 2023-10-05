@@ -1,0 +1,19 @@
+#01
+sudo tc qdisc add dev enp1s0d1 root handle 1: tbf rate 256kbit buffer 1600 limit 3000
+sudo tc qdisc add dev enp1s0d1 parent 1:1 handle 10: netem delay 20ms loss 0.5%
+
+#02
+sudo tc qdisc add dev enp1s0d1 root handle 1: tbf rate 200kbit buffer 1600 limit 3000
+sudo tc qdisc add dev enp1s0d1 parent 1:1 handle 10: netem delay 30ms loss 0.55%
+
+#03
+sudo tc qdisc add dev enp1s0d1 root handle 1: tbf rate 175kbit buffer 1600 limit 3000
+sudo tc qdisc add dev enp1s0d1 parent 1:1 handle 10: netem delay 25ms loss 0.55%
+
+#04
+sudo tc qdisc add dev enp1s0d1 root handle 1: tbf rate 150kbit buffer 1600 limit 3000
+sudo tc qdisc add dev enp1s0d1 parent 1:1 handle 10: netem delay 40ms loss 0.6%
+
+#05
+sudo tc qdisc add dev enp1s0d1 root handle 1: tbf rate 120kbit buffer 1600 limit 3000
+sudo tc qdisc add dev enp1s0d1 parent 1:1 handle 10: netem delay 100ms loss 1%

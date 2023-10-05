@@ -1,4 +1,4 @@
-use std::thread;
+//use std::thread;
 
 use clap::Arg;
 
@@ -17,28 +17,44 @@ fn main() {
             .help("Sets a custom config file")
             .takes_value(true)
             .required(true))
+        .arg(Arg::with_name("id")
+            .short('i')
+            .long("id")
+            .value_name("ID")
+            .help("Sets the id of the replica")
+            .takes_value(true)
+            .required(true))
         .get_matches();
 
     let config_file = matches.value_of("config").unwrap();
+    let id = matches.value_of("id").unwrap().parse::<u32>().unwrap();
 
     let config = parse_configuration(config_file);
 
-    let mut handles_replica = vec![];
+    //Get address of the replica from the config file using the id
+    let replica_address = config.replicas.iter().find(|replica| replica.id == id).unwrap().replica_address.clone();
+    let transport = Transport::new(replica_address);
 
-    for replica in config.replicas.iter() {
+    let mut noler_replica = NolerReplica::new(id, replica_address, config.clone(), transport);
 
-        let transport = Transport::new(replica.replica_address);
+    noler_replica.start_noler_replica();
+
+    // let mut handles_replica = vec![];
+
+    // for replica in config.replicas.iter() {
+
+    //     let transport = Transport::new(replica.replica_address);
 
 
-        let mut noler_replica = NolerReplica::new(replica.id, replica.replica_address, config.clone(), transport);
-        let handle_replica = thread::spawn(move || {
-            noler_replica.start_noler_replica();
-        });
-        handles_replica.push(handle_replica);
+    //     let mut noler_replica = NolerReplica::new(replica.id, replica.replica_address, config.clone(), transport);
+    //     let handle_replica = thread::spawn(move || {
+    //         noler_replica.start_noler_replica();
+    //     });
+    //     handles_replica.push(handle_replica);
 
-    }
+    // }
 
-    handles_replica.into_iter().for_each(|handle| {
-        handle.join().unwrap();
-    });
+    // handles_replica.into_iter().for_each(|handle| {
+    //     handle.join().unwrap();
+    // });
 }

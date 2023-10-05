@@ -1,0 +1,47 @@
+---
+- hosts: peer_cloudlab, client_cloudlab
+  remote_user: amwotil
+  become: false
+
+  pre_tasks:
+  - name: update repositories
+    apt: update_cache=yes
+    become: true
+    changed_when: false
+
+  tasks:
+  #create a directory ~/go/src
+  - name: create a directory ~/go/src
+    file:
+      path: ~/go/src
+      state: directory
+      mode: 0755
+  #clone the rabia repository
+  - name: clone the Rabia github repository
+    git:
+      repo: https://github.com/haochenpan/rabia.git
+      dest: ~/go/src/rabia
+
+  #install rabia 
+  - name: install rabia
+    shell: . ./install/install.sh
+    args:
+      chdir: ~/go/src/rabia/deployment
+
+  #clone the epaxos-single.git to ~/go/src
+  - name: clone the epaxos-single github repository
+    git:
+      repo: https://github.com/zhouaea/epaxos-single.git
+      dest: ~/go/src
+
+  #checkout paxos-no-pipelining-no-batching
+  - name: checkout paxos-no-pipelining-no-batching
+    shell: git checkout paxos-no-pipelining-no-batching
+    args:
+      chdir: ~/go/src/epaxos-single
+      
+  #install epaxos-single
+  - name: install epaxos-single [paxos or epaxos]
+    shell: . ./compilePaxos.sh
+    args:
+      chdir: ~/go/src/epaxos-single

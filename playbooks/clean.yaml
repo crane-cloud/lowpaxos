@@ -1,12 +1,11 @@
-- hosts: peer-cloudlab
-  become: yes
+- hosts: peercloudlab, clientcloudlab
+  remote_user: amwotil
+  become: false
+
   tasks:
   - name: Get Noler PIDs
-    shell:
-      cmd: ps -ef | grep -v grep | grep -w noler | awk '{print $2}' | awk 'FNR == 1 {print}'
-      warn: false
-    changed_when: false
-    check_mode: false
+    shell: ps -ef | grep -v grep | grep -w noler | awk '{print $2}' | awk 'FNR == 1 {print}'
+    ignore_errors: yes
     register: noler_pids
 
   - name: Kill running processes
