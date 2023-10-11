@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use rand_distr::num_traits::ops::bytes;
 use serde::{Serialize, Deserialize};
 
 use crate::role::Role;
@@ -13,6 +14,12 @@ pub struct ChannelMessage {
     pub message: String,
 }
 
+#[derive(Debug)]
+pub struct ClientMessage {
+    pub msg_type: MessageType,
+    //pub message: Vec<u8>
+    pub message: String,
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Copy, Clone, Eq, Hash)]
 pub enum ElectionType {
@@ -36,6 +43,7 @@ pub enum TimeoutType {
     LeaderLeaseTimeout(String),
 }
 
+#[derive(Debug)]
 pub enum MessageType {
     RequestVote,
     ResponseVote,

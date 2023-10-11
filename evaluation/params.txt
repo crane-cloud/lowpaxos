@@ -1,3 +1,72 @@
+
+[All]
+sudo apt install vim
+sudo vim /etc/systemd/system/network_tc_setup.service
+
+!
+[Unit]
+Description=Network Traffic Control Setup
+
+[Service]
+Type=oneshot
+ExecStart=/etc/network_tc_setup.sh
+
+[Install]
+WantedBy=multi-user.target
+!
+
+
+sudo vim /etc/network_tc_setup.sh
+
+[lowpaxos-01]
+
+#!/bin/bash
+tc qdisc add dev enp65s0f0 root handle 1: tbf rate 256kbit buffer 1600 limit 3000
+tc qdisc add dev enp65s0f0 parent 1:1 handle 10: netem delay 20ms loss 0.5%
+!
+
+
+[lowpaxos-02]
+
+#!/bin/bash
+tc qdisc add dev enp65s0f0 root handle 1: tbf rate 200kbit buffer 1600 limit 3000
+tc qdisc add dev enp65s0f0 parent 1:1 handle 10: netem delay 30ms loss 0.55%
+!
+
+[lowpaxos-03]
+
+#!/bin/bash
+tc qdisc add dev enp65s0f0 root handle 1: tbf rate 175kbit buffer 1600 limit 3000
+tc qdisc add dev enp65s0f0 parent 1:1 handle 10: netem delay 25ms loss 0.55%
+!
+
+
+[lowpaxos-04]
+
+#!/bin/bash
+tc qdisc add dev enp65s0f0 root handle 1: tbf rate 150kbit buffer 1600 limit 3000
+tc qdisc add dev enp65s0f0 parent 1:1 handle 10: netem delay 40ms loss 0.6%
+!
+
+
+[lowpaxos-05]
+
+#!/bin/bash
+tc qdisc add dev enp65s0f0 root handle 1: tbf rate 120kbit buffer 1600 limit 3000
+tc qdisc add dev enp65s0f0 parent 1:1 handle 10: netem delay 100ms loss 1%
+!
+
+#Enable and state the traffic shaping service
+
+sudo chmod +x /etc/network_tc_setup.sh
+sudo systemctl enable network_tc_setup.service
+sudo systemctl start network_tc_setup.service
+
+ 
+
+
+############################################################################################################
+
 #01
 sudo tc qdisc add dev enp1s0d1 root handle 1: tbf rate 256kbit buffer 1600 limit 3000
 sudo tc qdisc add dev enp1s0d1 parent 1:1 handle 10: netem delay 20ms loss 0.5%
@@ -17,3 +86,5 @@ sudo tc qdisc add dev enp1s0d1 parent 1:1 handle 10: netem delay 40ms loss 0.6%
 #05
 sudo tc qdisc add dev enp1s0d1 root handle 1: tbf rate 120kbit buffer 1600 limit 3000
 sudo tc qdisc add dev enp1s0d1 parent 1:1 handle 10: netem delay 100ms loss 1%
+
+############################################################################################################

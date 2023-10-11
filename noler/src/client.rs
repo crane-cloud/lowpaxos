@@ -1,297 +1,348 @@
 use noler::utility::parse_configuration;
-//use noler::transport::Transport;
+use noler::transport::TransportClient;
 use noler::config::Config;
 use noler::message::{RequestMessage, ResponseMessage, MessageWrapper};
-use common::utility::{wrap_and_serialize, generate_random_key};
+use common::utility::wrap_and_serialize;
 use kvstore::{KvStoreMsg, Operation};
 
-
 use clap::{Arg, App};
-//use std::time::Instant;
+use std::time::Instant;
 use std::thread;
-//use std::sync::Arc;
-use std::net::{SocketAddr, UdpSocket};
-use std::time::{Instant, SystemTime, UNIX_EPOCH, Duration};
-use std::thread::sleep;
+use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 use rand::Rng;
-//use rand::distributions::Distribution;
 use rand::prelude::*;
 use rand_distr::Zipf;
-use rand_distr::{Poisson, Distribution};
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::error::Error;
 use std::fs::File;
 use std::io::Write;
-use serde::{Serialize, Deserialize};
+use std::sync::{Arc, Mutex};
 
+use tokio::time::Duration;
+
+#[derive(Debug, Copy, Clone)]
+struct RequestInfo {
+    sent_instant: Instant,
+    response_instant: Option<Instant>,
+    result: Option<bool>,
+}
+
+impl RequestInfo {
+    fn new() -> RequestInfo {
+        RequestInfo {
+            sent_instant: Instant::now(),
+            response_instant: None,
+            result: None,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct NolerClient {
     id: u32,
-    address: SocketAddr,
+    writer: TransportClient,
+    reader: Arc<TransportClient>,
     config: Config,
-    //transport: Arc<Transport>,
-    socket: UdpSocket,
-    req_id: u64,
-    //leader: Option<SocketAddr>,
+    leader: Arc<Mutex<Option<SocketAddr>>>,
+    //rx: UnboundedReceiver<ClientMessage>,
+    //tx: Arc<UnboundedSender<ClientMessage>>,
+    //req_id: u64,
+    request_info: Arc<Mutex<Vec<RequestInfo>>>,
 }
 
 impl NolerClient {
-    fn new(id: u32, address: SocketAddr, config: Config) -> NolerClient {
-        let socket = UdpSocket::bind(address).unwrap();
+    fn new(id: u32, writer: TransportClient, reader: TransportClient, config: Config) -> NolerClient {
+        //let (tx, rx) = mpsc::unbounded_channel();
+
         NolerClient {
             id,
-            address,
+            writer,
+            reader: Arc::new(reader),
             config: config,
-            //transport: Arc::new(transport),
-            socket,
-            req_id: 0,
-            //leader: None,
+            leader: Arc::new(Mutex::new(None)),
+            //req_id: 0,
+            //tx: Arc::new(tx),
+            //rx: rx,
+            request_info: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
-    pub fn start_noler_client(&mut self, requests: u32, conflicts: u32, writes: u32, rounds: u32, file: String) {
-        println!("{}: starting the noler client", self.id);
+    async fn write_requests(&mut self, request_vec: Vec<i64>, op_type: Vec<bool>) {
+        let mut request_id = 0;
+        let leader = Arc::clone(&self.leader);
+        //let tx = Arc::clone(&self.tx);
+        //let request_info = Arc::clone(&self.request_info);
 
-        //Create the log file
-        let mut file = File::create(file).unwrap();
+        println!("Start time: {}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
 
-        // let mut rng = rand::thread_rng();
-        // let zipf = zipf::ZipfDistribution::new(10000, 2.5).unwrap();
-        // let sample = zipf.sample(&mut rng);
-        // println!("Sample: {}", sample);
+        for (request, is_set) in request_vec.iter().zip(op_type.iter()) {
+            //tokio::time::sleep(Duration::from_secs(1)).await;
+            thread::sleep(Duration::from_millis(1));
 
+            request_id += 1;
 
-        // let val: f64 = thread_rng().sample(Zipf::new(10000, 2.5).unwrap());
-        // println!("Sample: {}", val);
+            // Update the request_info
+            {
+                let mut request_info = self.request_info.lock().unwrap();
+                request_info.push(RequestInfo::new());}
 
-        // let poi = Poisson::new(100.0).unwrap();
-        // let v = poi.sample(&mut rand::thread_rng());
-        // println!("{} is from a Poisson(2) distribution", v);
-
-        //Generate keys equal to the number of requests
-
-        let mut rng = rand::thread_rng();
-
-        //Create Zipf distribution
-        let zipf = Zipf::new(1000, 1.5).unwrap();
-
-        //Initilaize the arrays
-        let mut karray = vec![0; (requests/rounds) as usize];
-        let mut put = vec![false; (requests/rounds) as usize];
-
-
-
-        for i in 0..requests as usize {
-
-            if conflicts > 0 {
-                let r: u32 = rng.gen_range(0..100);
-
-                if r < conflicts {
-                    //In the case of conflicts, use the same key
-                    karray[i] = 42;
-                }
-                else {
-                    karray[i] = (43 + i) as i64;
-                }
-
-                let r = rng.gen_range(0..100);
-
-                if r < writes {
-                    put[i] = true;
-                }
-
-                else {
-                    put[i] = false;
-                }
-            }
-
-            else {
-                karray[i] = zipf.sample(&mut rng) as i64;
-            }
-
-        }
-
-        //Print the populated arrays for demo
-        println!("karray: {:?}", karray);
-        println!("put: {:?}", put);
-
-
-        write!(file, "Start time: ").expect("Unable to write to file");
-        //let before_total_instant = Instant::now();
-        let before_total = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").subsec_nanos();
-        writeln!(file, "{}", before_total).expect("Unable to write to file");
-
-
-
-        let mut success = 0;
-        let mut latencies = Vec::<Option<Duration>>::new();
-
-        for i in 0..requests {
-            let operation = if put[i as usize] {
-                Operation::SET(karray[i as usize].to_string(), i.to_string())
+            let op = if *is_set {
+                Operation::SET(request.to_string(), request_id.to_string())
             } else {
-                Operation::GET(karray[i as usize].to_string())
+                Operation::GET(request.to_string())
             };
 
-            println!("Client {}: Sending request {:?}", self.id, operation);
-
-            match self.send_request(operation.to_bytes().unwrap()) {
-                Ok(Some(latency)) => {
-                    writeln!(file, "{}", latency.as_nanos()).expect("Unable to write to file");
-                    success += 1;
-                    latencies.push(Some(latency))
-                },
-                Ok(None) => {
-                    println!("Client {}: Request failed", self.id);
-                    latencies.push(None)
-                },
-                Err(e) => {
-                    println!("Client {}: Error: {}", self.id, e);
-                    latencies.push(None)
-                }
-            }
-        }
-        ////////////////////////////////////////////////////////////////////////////
-        write!(file, "End time: ").expect("Unable to write to file");
-        let after_total = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").subsec_nanos();
-        writeln!(file, "{}", after_total).expect("Unable to write to file");
-        
-
-        //Calculate and print the statistics
-        // let average_latency = calculate_average_latency(&latencies);
-        // let min_latency = calculate_min_latency(&latencies);
-        // let max_latency = calculate_max_latency(&latencies);
-        // let percentile_latency = calculate_percentile_latency(&latencies, 99.0); // Calculate the 95th percentile latency
-
-        // println!("Minimum Latency: {:?}", min_latency);
-        // println!("Maximum Latency: {:?}", max_latency);
-        // println!("99th Percentile Latency: {:?}", percentile_latency);
-        // println!("Client: {} requests took {}ms", requests, average_latency.unwrap().as_millis());
-
-        println!("Client: {} requests were successful", success);
-
-    }
-
-        fn send_request(&mut self, op: Vec<u8>) -> Result<Option<Duration>, Box<dyn Error>> {
-            self.req_id += 1;
-
             let request_message = RequestMessage {
-                client_id: self.address,
-                request_id: self.req_id,
-                operation: op,
+                client_id: self.reader.local_address(),
+                request_id: request_id,
+                operation: op.to_bytes().unwrap(),
             };
 
             let serialized_request = wrap_and_serialize(
-                "RequestMessage", 
-                serde_json::to_string(&request_message).unwrap()
+                "RequestMessage",
+                serde_json::to_string(&request_message).unwrap(),
             );
 
-            let start_time = Instant::now();
+            //println!("Client {}: Sending request to replica system {:?}", self.id, request_message);
 
-            self.socket.send_to(
-                &mut serialized_request.as_bytes(),
-                &self.config.replicas[0].replica_address,
-            ).expect("Client: Failed to send request to replica");
+            let known_leader = {
+                let leader = leader.lock().unwrap();
+                leader.clone()
+            };
 
-            let mut response_buffer = [0; 1024];
-            let (bytes_received, _from) = self.socket.recv_from(&mut response_buffer)?;
+            if let Some(known_leader) = known_leader {
+                //Send the request to the leader
+                self.writer
+                    .send(
+                        &known_leader,
+                        serialized_request.as_bytes(),
+                    ).await.expect("Client: Failed to send request to leader");
+            }
 
-            let wrapped_response = serde_json::from_str::<MessageWrapper>(&String::from_utf8_lossy(&response_buffer[..bytes_received]).to_string()).unwrap();
+            else {
+                //Send the request to random replica
+                let len = self.config.replicas.len();
+                let replica = request_id  as usize % len;
 
-            let wrapper = wrapped_response.msg_type.as_str();
+                self.writer.send(
+                    &self.config.replicas[replica].replica_address, //Send to the first replica
+                    serialized_request.as_bytes()).await.expect("Client: Failed to send request to replica");
+            }
+        }
+    }
 
-            match wrapper {
-                "ResponseMessage" => {
-                    let response = wrapped_response.msg_content;
-                    let r = serde_json::from_str::<ResponseMessage>(&response).unwrap();
+    async fn read_responses(&mut self) {
+        
+        let reader = Arc::clone(&self.reader);
+        let request_info = Arc::clone(&self.request_info);
+        let leader = Arc::clone(&self.leader);
 
-                    //let deserialized_r: Vec<u8> = bincode::deserialize(&r.reply).unwrap();
+        //Create a log file
+        let mut log = File::create("log.out").expect("Unable to create file");
 
-                    let result:Result<KvStoreMsg<String, String>, _> = bincode::deserialize(&r.reply);
+        //println!("Client {}: starting thread to receive responses", self.id);
 
-                    match result {
-                        Ok(msg) => {
-                            //println!("Client: Received reply: {:?}", msg); //Can get the successful read/writes here
+        tokio::spawn(async move {
+            let mut buf = [0; 1024];
 
-                            match msg {
-                                KvStoreMsg::SetOk(key) => {
-                                    println!("Client: SET {} was successful", key);
-                                },
-                                KvStoreMsg::GetOk(key, value) => {
-                                    println!("Client: GET {} {} was successful", key, value);
-                                },
-                                KvStoreMsg::None => {
-                                    println!("Client: Operation was unsuccessful");
-                                },
+            loop {
+                match reader.receive_from(&mut buf).await {
+                    Ok((len, from)) => {
+                        let message = String::from_utf8_lossy(&buf[..len]).to_string();
+
+                        //validate the response
+                        if is_valid_response(&message) {
+
+                            {
+                                let mut leader = leader.lock().unwrap();
+                                //Check if the leader on the client
+
+                                if *leader == None {
+                                    //Update the leader with the replica that responds
+                                    *leader = Some(from);
+                                }
+
+                                else {
+                                    //Check if the response is from a leader we don't know
+                                    if Some(from) != *leader {
+                                        //We have a new leader - update
+                                        *leader = Some(from);
+                                    }
+                                }
                             }
 
-                            if self.req_id == r.request_id {
-                                let end_time = Instant::now();
-                                let latency = end_time.duration_since(start_time);
-                                return Ok(Some(latency));
-                            }
+                            //Process the response here
+                            let wrapped_response = serde_json::from_str::<MessageWrapper>(&message).unwrap();
+                            let _wrapper = wrapped_response.msg_type.as_str(); //Already verified a ResponseMessage type
+                            let response: ResponseMessage = serde_json::from_str(&wrapped_response.msg_content).unwrap();
 
-                            else {
-                                return Ok(None)
+                            let request_id = response.request_id;
+
+                            let result:Result<KvStoreMsg<String, String>, _> = bincode::deserialize(&response.reply);
+
+                            match result {
+                                Ok(_msg) => {
+                                    //println!("Client: received reply: {:?} with id {}", msg, request_id); //Can get the successful read/writes here
+
+                                    {
+                                        //Acquire the lock to update the request_info
+                                        let mut request_info = request_info.lock().unwrap();
+
+                                        //Try to get the request_info for the request_id
+                                        let request_info = &mut request_info[(request_id as usize) - 1];
+
+                                        //Confirm that the request_id is correct and no response has been received before
+                                        if request_info.response_instant == None {
+                                            request_info.response_instant = Some(Instant::now());
+                                            request_info.result = Some(true);
+
+                                            //Get the latency for the request
+                                            let latency = request_info.response_instant.unwrap().duration_since(request_info.sent_instant);
+                                            //println!("Round took {}ms", latency.as_millis());
+                                            writeln!(log, "Round took {}ms", latency.as_millis()).expect("Unable to write to file");
+
+                                        }
+                                        else {
+                                            eprintln!("Client: Error: Request id {} already has a response", request_id);
+                                        }
+                                    }
+        
+                                    // match msg {
+                                    //     KvStoreMsg::SetOk(key) => {
+                                    //         println!("Client: SET {} was successful", key);
+                                    //     },
+                                    //     KvStoreMsg::GetOk(key, value) => {
+                                    //         println!("Client: GET {} {} was successful", key, value);
+                                    //     },
+                                    //     KvStoreMsg::None => {
+                                    //         println!("Client: Operation was unsuccessful");
+                                    //     },
+                                    // }
+                                },
+                                Err(e) => {
+                                    eprintln!("Error: {}", e);
+                                }
                             }
-                        },
-                        Err(e) => {
-                            println!("Error: {}", e);
-                            return Ok(None)
+                        } else {
+                            eprintln!("Received invalid response: {:?}", message);
                         }
                     }
-                },
-                _ => {
-                    println!("Unknown message type: {}", wrapper);
-                    return Ok(None);
+
+                    Err(err) => {
+                        if err.kind() != std::io::ErrorKind::WouldBlock {
+                            eprintln!("Failed to receive data: {:?}", err);
+                        }
+                    }
                 }
+            }
+        });
+    }
+
+
+}
+
+async fn run_noler_client(id: u32, config: Config, writer: SocketAddr, reader: SocketAddr, requests: u32, conflicts: u32, writes: u32, rounds: u32) {
+    let mut client = NolerClient::new(id, TransportClient::new(writer).await.unwrap(), TransportClient::new(reader).await.unwrap(), config);
+
+    // Start the async receiver
+    client.read_responses().await;
+
+    // Prepare the requests
+    let (karray, put) = prepare_request(requests, rounds, conflicts, writes);
+
+    // Start sending async requests
+    client.write_requests(karray, put).await;
+
+    //Print the end time
+    println!("End time: {}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
+
+    // Wait for the responses to be received
+    thread::sleep(Duration::from_secs(1));
+
+    // Determine the number of successful requests
+    let mut successful_requests = 0;
+
+    {
+        let request_info = client.request_info.lock().unwrap();
+
+        for request in request_info.iter() {
+            if request.result == Some(true) {
+                successful_requests += 1;
             }
         }
 
-}
-
-fn calculate_average_latency(latencies: &[Option<Duration>]) -> Option<Duration> {
-    let (total_latency, count) = latencies.iter().fold(
-        (Duration::from_secs(0), 0),
-        |(acc, count), item| match item {
-            Some(duration) => (acc + *duration, count + 1),
-            None => (acc, count),
-        },
-    );
-
-    if count > 0 {
-        Some(total_latency / count as u32)
-    } else {
-        None
+        println!("Client {}: {} out of {} requests were successful", id, successful_requests, requests);
     }
 }
 
-fn calculate_min_latency(latencies: &[Option<Duration>]) -> Option<Duration> {
-    latencies
-        .iter()
-        .filter_map(|&latency| latency)
-        .min()
+
+fn is_valid_response(response: &str) -> bool {
+    // Attempt to parse the response as a JSON object
+    if let Ok(parsed_response) = serde_json::from_str::<serde_json::Value>(response) {
+        // Check if the parsed JSON object has the expected structure
+        if let Some(msg_type) = parsed_response.get("msg_type") {
+            if msg_type == "ResponseMessage" {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
-fn calculate_max_latency(latencies: &[Option<Duration>]) -> Option<Duration> {
-    latencies
-        .iter()
-        .filter_map(|&latency| latency)
-        .max()
+fn create_reader_writer(id: u32) -> (SocketAddr, SocketAddr) {
+    //let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, id));
+    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+
+    let writer_ip = SocketAddr::new(ip, 3000 + id as u16);
+    let reader_ip = SocketAddr::new(ip, 3100 + id as u16);
+
+    (writer_ip, reader_ip)
 }
 
-fn calculate_percentile_latency(latencies: &[Option<Duration>], percentile: f32) -> Option<Duration> {
-    let mut latencies = latencies
-        .iter()
-        .filter_map(|&latency| latency)
-        .collect::<Vec<Duration>>();
+fn prepare_request(requests: u32, rounds: u32, conflicts: u32, writes: u32) -> (Vec<i64>, Vec<bool>) {
+    let mut rng = rand::thread_rng();
 
-    latencies.sort();
-    let index = (percentile / 100.0 * latencies.len() as f32) as usize;
-    latencies.get(index).cloned()
+    // Create Zipf distribution
+    let zipf = Zipf::new(1000, 1.5).unwrap();
+
+    // Initialize the arrays
+    let mut karray = vec![0; (requests / rounds) as usize];
+    let mut put = vec![false; (requests / rounds) as usize];
+
+    for i in 0..requests as usize {
+        if conflicts > 0 {
+            let r: u32 = rng.gen_range(0..100);
+
+            if r < conflicts {
+                // In the case of conflicts, use the same key
+                karray[i] = 42;
+            } else {
+                karray[i] = (43 + i) as i64;
+            }
+
+            let r = rng.gen_range(0..100);
+
+            if r < writes {
+                put[i] = true;
+            } else {
+                put[i] = false;
+            }
+        } else {
+            put[i] = true; // ToDo: Comment out
+            karray[i] = zipf.sample(&mut rng) as i64;
+        }
+    }
+
+    // Print the populated arrays for demo
+    // println!("karray: {:?}", karray);
+    // println!("put: {:?}", put);
+
+    (karray, put)
 }
 
-
-
-fn main() {
+#[tokio::main]
+async fn main() {
     let matches = App::new("Noler Client")
         .arg(Arg::with_name("config")
             .short('c')
@@ -300,17 +351,17 @@ fn main() {
             .help("Sets a custom config file")
             .takes_value(true)
             .required(true))
-        .arg(Arg::with_name("requests")
-            .short('n')
-            .long("requests")
-            .value_name("REQUESTS")
-            .help("Number of requests per client thread")
-            .default_value("1"))
         .arg(Arg::with_name("threads")
             .short('t')
             .long("threads")
             .value_name("THREADS")
             .help("Number of client threads")
+            .default_value("1"))
+        .arg(Arg::with_name("requests")
+            .short('n')
+            .long("requests")
+            .value_name("REQUESTS")
+            .help("Number of requests per client thread")
             .default_value("1"))
         .arg(Arg::with_name("file")
             .short('f')
@@ -338,30 +389,24 @@ fn main() {
             .default_value("1"))
         .get_matches();
 
-    let threads = matches.value_of("threads").unwrap().parse::<u32>().unwrap();
     let requests = matches.value_of("requests").unwrap().parse::<u32>().unwrap();
     let conflicts = matches.value_of("conflicts").unwrap().parse::<u32>().unwrap();
     let writes = matches.value_of("writes").unwrap().parse::<u32>().unwrap();
     let rounds = matches.value_of("rounds").unwrap().parse::<u32>().unwrap();
-    
+    let threads = matches.value_of("threads").unwrap().parse::<u32>().unwrap(); //Number of clients
 
     let log = matches.value_of("file").unwrap().to_string();
     let config_file = matches.value_of("config").unwrap();
 
-    let address = "127.0.0.1:32000".parse().unwrap();
+    for id in 0..threads {
+        let (writer_address, reader_address) = create_reader_writer(id);
 
-    let handles = (0..threads).map(|_| {
         let config = parse_configuration(config_file);
-        let log = log.clone();
+        let _log = log.clone();
 
-        thread::spawn(move || {
-            let mut client = NolerClient::new(0, address, config);
-            client.start_noler_client(requests, conflicts, writes, rounds,  log);
-        })
-    }).collect::<Vec<_>>();
-
-    // Wait for all threads to complete
-    for handle in handles {
-        handle.join().unwrap();
+        run_noler_client(id, config, writer_address, reader_address, requests, conflicts, writes, rounds).await;
     }
+
+    thread::sleep(Duration::from_secs(1));
+
 }

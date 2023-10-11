@@ -34,6 +34,7 @@ pub struct NolerReplica {
     pub ballot: Ballot,
     pub voted: Option<(u32, Ballot, ElectionType)>,
     pub leader: Option<(u32, Ballot)>, //To be part of the config
+    last_op: u64,
     liveness: HashMap<u32, Instant>, //Liveness of replicas updated at ProposeOk
     leadership_quorum: QuorumSet<(u32, u64), ResponseVoteMessage>,
     propose_quorum: QuorumSet<(u32, u64), ProposeOkMessage>,
@@ -163,6 +164,7 @@ impl NolerReplica {
             ballot: (0, 0),
             voted: None,
             leader: None,
+            last_op: 0,
             liveness: HashMap::new(),
             leadership_quorum: QuorumSet::new(config.f as i32),
             propose_quorum: QuorumSet::new(config.f as i32),
@@ -1544,6 +1546,14 @@ impl NolerReplica {
                                     LogEntryState::Committed => {
                                         //Get the reply from the log
                                         let reply = request_entry.unwrap().response.clone().unwrap();
+
+                                        // //Send the reply to the client
+                                        // println!("{}: sending a ResponseMessage to Client {} with request id {}", self.id, c_id, c_req_id);
+
+                                        // let _ = self.transport.send(
+                                        //     &c_id,
+                                        //     &reply.to_bytes().unwrap(),
+                                        // );
         
                                         //Serialize the ResponseMessage with meta type set
                                         let serialized_rm = wrap_and_serialize(
@@ -1563,6 +1573,14 @@ impl NolerReplica {
                                     LogEntryState::Executed => {
                                         //Get the reply from the log
                                         let reply = request_entry.unwrap().response.clone().unwrap();
+
+                                        //Send the reply to the client
+                                        println!("{}: sending a ResponseMessage to Client {} with request id {}", self.id, c_id, c_req_id);
+
+                                        let _ = self.transport.send(
+                                            &c_id,
+                                            &reply.to_bytes().unwrap(),
+                                        );
         
                                         //Serialize the ResponseMessage with meta type set
                                         let serialized_rm = wrap_and_serialize(
@@ -1585,15 +1603,20 @@ impl NolerReplica {
         
                             else {
                                 log::info!("{}: adding request to the log", self.id);
-                                //let ballot = (self.ballot.0, self.ballot.1 + 1);
+
+                                self.last_op += 1;
+
+                                let ballot = (self.ballot.0, self.last_op);
+
                                 //self.last_op += 1;
         
-                                self.log.append(self.ballot, message.clone(), None, LogEntryState::Propose);
+                                //self.log.append(self.ballot, message.clone(), None, LogEntryState::Propose);
+                                self.log.append(ballot, message.clone(), None, LogEntryState::Propose);
         
                                 //Send the ProposeMessage to the peers
                                 let propose_message = ProposeMessage {
                                     //leader,
-                                    ballot: self.ballot,
+                                    ballot: ballot,
                                     //opnum: self.last_op,
                                     request: message,
                                 };
@@ -1661,7 +1684,12 @@ impl NolerReplica {
     fn handle_propose_message(&mut self, src: SocketAddr, message: ProposeMessage) {
 
         if message.ballot < self.ballot {
-            println!("{}: received a stale ProposeMessage", self.id);
+            println!("{}: received a stale ProposeMessage - last_op", self.id);
+            return;
+        }
+
+        if message.ballot.1 < self.last_op {
+            println!("{}: received a stale ProposeMessage - last_op", self.id);
             return;
         }
 
@@ -1713,36 +1741,68 @@ impl NolerReplica {
             }
 
             else {
-                //Add the request to the log
-                self.log.append(message.ballot, message.request.clone(), None, LogEntryState::Proposed);
 
-                println!("{}: added request to the log - sending ProposeOk", self.id);
+                //ToDo: gaps
 
-                //Send the ProposeOkMessage to the leader
-                let propose_ok_message = ProposeOkMessage {
-                    ballot: message.ballot,
-                    commit_index: self.commit_index,
-                };
+                if message.ballot.1 == (self.last_op + 1){
+                    //Update the last_op
+                    self.last_op += 1;
 
-                //Serialize the ProposeOkMessage with meta type set
-                let serialized_pom = wrap_and_serialize(
-                    "ProposeOkMessage", 
-                    serde_json::to_string(&propose_ok_message).unwrap()
-                );
+                    //Add the request to the log
+                    self.log.append(message.ballot, message.request.clone(), None, LogEntryState::Proposed);
 
-                //Send the ProposeOkMessage to the leader
-                println!("{}: sending a ProposeOkMessage to Replica {} with ballot {:?}", self.id, src, message.ballot);
-                let _ = self.transport.send(
-                    &src,
-                    &mut serialized_pom.as_bytes(),
-                );
+                    println!("{}: added request to the log - sending ProposeOk", self.id);
+
+                    //Send the ProposeOkMessage to the leader
+                    let propose_ok_message = ProposeOkMessage {
+                        ballot: message.ballot,
+                        commit_index: self.commit_index,
+                    };
+
+                    //Serialize the ProposeOkMessage with meta type set
+                    let serialized_pom = wrap_and_serialize(
+                        "ProposeOkMessage", 
+                        serde_json::to_string(&propose_ok_message).unwrap()
+                    );
+
+                    //Send the ProposeOkMessage to the leader
+                    println!("{}: sending a ProposeOkMessage to Replica {} with ballot {:?}", self.id, src, message.ballot);
+                    let _ = self.transport.send(
+                        &src,
+                        &mut serialized_pom.as_bytes(),
+                    );
+                }
+
+                else {
+                    //Request for state from the leader
+
+                    let request_state_message = RequestStateMessage {
+                        ballot: self.ballot,
+                        commit_index: self.commit_index, //last_op
+                    };
+
+                    //Serialize the RequestStateMessage with meta type set
+                    let serialized_rsm = wrap_and_serialize(
+                        "RequestStateMessage", 
+                        serde_json::to_string(&request_state_message).unwrap()
+                    );
+
+                    //Send the RequestStateMessage to the leader
+                    println!("{}: sending a RequestStateMessage to Replica {} with ballot {:?}", self.id, src, self.ballot);
+                    let _ = self.transport.send(
+                        &src,
+                        &mut serialized_rsm.as_bytes(),
+                    );
+                }
             }
         }
     }
 
     fn handle_propose_ok(&mut self, src: SocketAddr, message: ProposeOkMessage) {
+
         if self.role == Role::Leader && self.state == NORMAL {
-            if message.ballot == self.ballot {
+            
+            //if message.ballot == self.ballot {
                 println!("{}: received a ProposeOkMessage from Replica {} with ballot {:?}", self.id, src, message.ballot);
                 
                 //Update the liveness instant for each replica
@@ -1772,7 +1832,8 @@ impl NolerReplica {
                             self.log.set_status(ballot.1, LogEntryState::Committed);
     
                             // Update the current ballot & commit index
-                            self.ballot.1 += 1;
+                            // self.ballot.1 += 1;
+                            self.ballot.1 = ballot.1; //op_number
                             self.commit_index = self.ballot.1;
     
                             // Determine the type of operation
@@ -1798,6 +1859,14 @@ impl NolerReplica {
 
                                             //Update the execution index
                                             self.execution_index = self.commit_index;
+
+                                            // //Send the reply to the client
+                                            // println!("{}: sending a ResponseMessage to Client {} with request id {}", self.id, entry_clone.request.client_id, entry_clone.request.request_id);
+
+                                            // let _ = self.transport.send(
+                                            //     &entry_clone.request.client_id,
+                                            //     &result.to_bytes().unwrap(),
+                                            // );
 
                                             //Send the ResponseMessage to the client
                                             let response_message = ResponseMessage {
@@ -1851,7 +1920,7 @@ impl NolerReplica {
                             //self.perform_liveness_check();
                     }
                 }
-            }
+            //}
 
             //Print the log & data
             //println!("{}: log is {:?}", self.id, self.log);
@@ -1873,8 +1942,8 @@ impl NolerReplica {
             println!("{}: ignore as this is done only in the normal state", self.id);
             return;
         }
-
-        if message.ballot == self.ballot {
+        
+        if message.ballot >= self.ballot {
             println!("{}: received a CommitMessage from Replica {} with ballot {:?}", self.id, src, message.ballot);
 
             // Find the request in the log
@@ -1889,7 +1958,8 @@ impl NolerReplica {
                     self.log.set_status(ballot.1, LogEntryState::Committed);
 
                     //Update the current ballot & commit index
-                    self.ballot.1 += 1;
+                    //self.ballot.1 += 1;
+                    self.ballot.1 = ballot.1; //op_number
                     self.commit_index = self.ballot.1;
 
                     match self.role {

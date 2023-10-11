@@ -43,19 +43,16 @@
   remote_user: amwotil
   become: false
   tasks:
-  - name: get local IPv4 address at the peer
-    ansible.builtin.setup:
-      filter: "ansible_default_ipv4.interfaces.enp1s0d1.address"
-      register: local_ip
 
-  - name: determine the identifier from the IP address
+  - name: set the id of the peer
     set_fact:
-      id: "{{ local_ip['ansible_facts']['ansible_default_ipv4']['interfaces']['enp1s0d1']['address'].split('.')[3] }}"
+      id: "{{ ansible_enp1s0d1.ipv4.address.split('.')[3] }}"
 
-  - name: Start a noler peer
-    command: ~/.cargo/bin/cargo run --bin noler -- -c config.txt -i {{ id }}
-    args:
-      chdir:  ~/lowpaxos/noler
+  # - name: Start a noler peer
+  #   command: ~/.cargo/bin/cargo run --bin noler -- -c config.txt -i {{ id }}
+  #   args:
+  #     chdir:  ~/lowpaxos/noler
+  #   ignore_errors: yes
 
 
 # - hosts: client_cloudlab
