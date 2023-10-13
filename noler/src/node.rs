@@ -5,6 +5,7 @@ use serde_json;
 use std::thread;
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
@@ -136,11 +137,11 @@ impl NolerReplica {
         let mut matrix = ProfileMatrix::new(config.n as usize);
 
         let values = vec![
-            vec![70, 60, 40, 50],
-            vec![75, 50, 75, 60],
-            vec![60, 50, 40, 45],
-            vec![65, 80, 70, 50],
-            vec![60, 55, 70, 30],
+            vec![74, 65, 66, 53],
+            vec![74, 89, 83, 69],
+            vec![65, 89, 72, 100],
+            vec![66, 83, 72, 69],
+            vec![53, 69, 100, 73],
         ];
 
         for i in 0..values.len() {
@@ -148,13 +149,6 @@ impl NolerReplica {
                 let _ = matrix.set(i, j, Profile { x: values[i][j] });
             }
         }
-
-        // let mut matrix = ProfileMatrix::new(config.n as usize);
-        // matrix.set(0, 1, Profile { x: 70}); matrix.set(0, 2, Profile { x: 60}); matrix.set(0, 3, Profile { x: 40}); matrix.set(0, 4, Profile { x: 50});
-        // matrix.set(1, 0, Profile { x: 75}); matrix.set(1, 2, Profile { x: 50}); matrix.set(1, 3, Profile { x: 75}); matrix.set(1, 4, Profile { x: 60});
-        // matrix.set(2, 0, Profile { x: 60}); matrix.set(2, 1, Profile { x: 50}); matrix.set(2, 3, Profile { x: 40}); matrix.set(2, 4, Profile { x: 45});
-        // matrix.set(3, 0, Profile { x: 65}); matrix.set(3, 1, Profile { x: 80}); matrix.set(3, 2, Profile { x: 70}); matrix.set(3, 4, Profile { x: 50});
-        // matrix.set(4, 0, Profile { x: 60}); matrix.set(4, 1, Profile { x: 55}); matrix.set(4, 2, Profile { x: 70}); matrix.set(4, 3, Profile { x: 30});
 
         NolerReplica {
             id: id,
@@ -207,7 +201,7 @@ impl NolerReplica {
 
         if election_type == ElectionType::Offline {
             assert!(self.role == Role::Candidate || self.role == Role::Witness, "Only a candidate/witness can start offline election cycle");
-            assert!(self.poll_leader_timeout.active() || self.poll_leader_timer.active()|| !self.heartbeat_timeout.active(), 
+            assert!(self.poll_leader_timeout.active() || self.heartbeat_timeout.active(), 
                 "Only a candidate/witness with inactive poll leader timeout can start offline election cycle");
         }
 
@@ -754,6 +748,13 @@ impl NolerReplica {
             println!("{}: Quorum check -> {:?}", self.id, message);
 
             println!("{}: has quorum for leadership", self.id);
+
+            //Stop all leader-election based timeouts
+            self.leader_init_timeout.stop();
+            self.leader_vote_timeout.stop();
+            self.leadership_vote_timeout.stop();
+            self.poll_leader_timeout.stop();
+            self.heartbeat_timeout.stop();
 
             //Update the ballot to +1
             self.ballot = (self.ballot.0 + 1, self.ballot.1 + 1);
@@ -1505,7 +1506,7 @@ impl NolerReplica {
                 Ok(msg) => {
                     match msg {
                         Operation::SET(key, value) => {
-                            println!("{}: received a SET request from client {} with request id {}", self.id, c_id, c_req_id);
+                            println!("{}: received a SET request from client {} with request id {} at {}", self.id, c_id, c_req_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
                             println!("{}: SET request key = {}, value = {}", self.id, key, value);
 
                             //Start the Paxos-related logic
@@ -1651,7 +1652,7 @@ impl NolerReplica {
 
         else {
             //Forward Request to the leader
-            if self.leader.is_some() {
+            if self.leader.is_some() && self.leader.unwrap().0 != self.id { //Only forward requests to a non-leader
                 let leader_id = self.leader.unwrap().0;
                 let leader_address = {
                     if let Some(leader) = self.config.replicas.iter().find(|r| r.id == leader_id) { leader.replica_address.clone() }
@@ -1881,7 +1882,7 @@ impl NolerReplica {
                                             );
 
                                             //Send the ResponseMessage to the client
-                                            println!("{}: sending a ResponseMessage to Client {} with request id {}", self.id, entry_clone.request.client_id, entry_clone.request.request_id);
+                                            println!("{}: sending a ResponseMessage to Client {} with request id {} at {}", self.id, entry_clone.request.client_id, entry_clone.request.request_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
                                             let _ = self.transport.send(
                                                 &entry_clone.request.client_id,
                                                 &mut serialized_rm.as_bytes(),

@@ -13,12 +13,12 @@ use rand::Rng;
 use rand::prelude::*;
 use rand_distr::Zipf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::error::Error;
+//use std::error::Error;
 use std::fs::File;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-
 use tokio::time::Duration;
+use local_ip_address::list_afinet_netifas;
 
 #[derive(Debug, Copy, Clone)]
 struct RequestInfo {
@@ -121,11 +121,11 @@ impl NolerClient {
 
             else {
                 //Send the request to random replica
-                let len = self.config.replicas.len();
-                let replica = request_id  as usize % len;
+                let _len = self.config.replicas.len();
+                let _replica = request_id  as usize % _len;
 
                 self.writer.send(
-                    &self.config.replicas[replica].replica_address, //Send to the first replica
+                    &self.config.replicas[0].replica_address, //Send to the first replica
                     serialized_request.as_bytes()).await.expect("Client: Failed to send request to replica");
             }
         }
@@ -152,6 +152,7 @@ impl NolerClient {
 
                         //validate the response
                         if is_valid_response(&message) {
+                            println!("Response time: {}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
 
                             {
                                 let mut leader = leader.lock().unwrap();
@@ -254,7 +255,7 @@ async fn run_noler_client(id: u32, config: Config, writer: SocketAddr, reader: S
     client.write_requests(karray, put).await;
 
     //Print the end time
-    println!("End time: {}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
+    //println!("End time: {}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()); //ToDo: Incorrect
 
     // Wait for the responses to be received
     thread::sleep(Duration::from_secs(1));
@@ -291,13 +292,31 @@ fn is_valid_response(response: &str) -> bool {
 }
 
 fn create_reader_writer(id: u32) -> (SocketAddr, SocketAddr) {
-    //let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, id));
-    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
 
-    let writer_ip = SocketAddr::new(ip, 3000 + id as u16);
-    let reader_ip = SocketAddr::new(ip, 3100 + id as u16);
+    let network_interfaces = list_afinet_netifas();
 
-    (writer_ip, reader_ip)
+    if let Ok(network_interfaces) = network_interfaces {
+        for (_, ip) in network_interfaces.iter() {
+
+            if let IpAddr::V4(ipv4_addr) = ip {
+                let ip4addr: Ipv4Addr = *ipv4_addr;
+
+                if ip4addr.octets()[0] == 10 && ip4addr.octets()[1] == 10 {
+                    let ip = IpAddr::V4(ip4addr);
+                    return (SocketAddr::new(ip, 3000 + id as u16), SocketAddr::new(ip, 3100 + id as u16));
+                }
+            }
+        }
+    }
+    else {
+        eprintln!("Error: {}", network_interfaces.unwrap_err());
+        
+    }
+
+    // Use the localhost settings if the network interface is not found
+    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)); //Localhost
+    return (SocketAddr::new(ip, 3000 + id as u16), SocketAddr::new(ip, 3100 + id as u16));
+
 }
 
 fn prepare_request(requests: u32, rounds: u32, conflicts: u32, writes: u32) -> (Vec<i64>, Vec<bool>) {

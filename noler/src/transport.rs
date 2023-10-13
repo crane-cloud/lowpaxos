@@ -1,5 +1,6 @@
 use std::net::{SocketAddr, UdpSocket};
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{self};
+use std::time::Duration;
 
 use crate::config::Config;
 
@@ -34,6 +35,11 @@ impl Transport {
 
         Ok(())
     }
+
+    pub fn local_address(&self) -> SocketAddr {
+        self.socket.local_addr().unwrap()
+    }
+
 }
 
 #[derive(Debug)]
@@ -64,3 +70,54 @@ impl TransportClient {
         self.socket.local_addr().unwrap()
     }
 }
+
+#[derive(Debug)]
+pub struct TransportTimed {
+    pub socket: UdpSocket,
+    pub read_timeout: Option<Duration>,  // Add read timeout
+    pub write_timeout: Option<Duration>, // Add write timeout
+}
+
+impl TransportTimed {
+    pub fn new(bind_address: SocketAddr, read_timeout: Option<Duration>, write_timeout: Option<Duration>) -> TransportTimed {
+        let socket = UdpSocket::bind(bind_address).unwrap();
+
+        TransportTimed {
+            socket,
+            read_timeout,
+            write_timeout,
+        }
+    }
+
+    pub fn send(&self, remote_address: &SocketAddr, data: &[u8]) -> Result<usize, std::io::Error> {
+        // Set the write timeout if specified
+        if let Some(timeout) = self.write_timeout {
+            self.socket.set_write_timeout(Some(timeout)).expect("Failed to set write timeout");
+        }
+
+        self.socket.send_to(data, remote_address)
+    }
+
+    pub fn receive(&self, buffer: &mut [u8]) -> Result<usize, std::io::Error> {
+        // Set the read timeout if specified
+        if let Some(timeout) = self.read_timeout {
+            self.socket.set_read_timeout(Some(timeout)).expect("Failed to set read timeout");
+        }
+
+        self.socket.recv(buffer)
+    }
+
+    pub fn receive_from(&self, buffer: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
+        // Set the read timeout if specified
+        if let Some(timeout) = self.read_timeout {
+            self.socket.set_read_timeout(Some(timeout)).expect("Failed to set read timeout");
+        }
+
+        self.socket.recv_from(buffer)
+    }
+
+    pub fn local_address(&self) -> SocketAddr {
+        self.socket.local_addr().unwrap()
+    }
+}
+

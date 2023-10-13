@@ -13,7 +13,7 @@ pub fn parse_configuration(config_file: &str) -> Config {
     let mut f: isize = -1;
     let mut replicas = Vec::new();
 
-    println!("Parsing configuration file: {}", config_file);
+    //println!("Parsing configuration file: {}", config_file);
 
     for (line_index, line) in reader.lines().enumerate() {
         if let Ok(line) = line {
@@ -67,5 +67,3 @@ pub fn wrap_and_serialize(meta: &str, data: String) -> String {
     let serialized_meta = serde_json::to_string(&wrapper).unwrap();
     serialized_meta
 }
-
-
