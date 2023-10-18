@@ -5,6 +5,7 @@ use serde::{Serialize, Deserialize};
 use crate::role::Role;
 use crate::config::Config;
 use crate::log::{Log, LogEntry};
+use crate::monitor::{Profile};
 
 
 #[derive(Debug)]
@@ -181,6 +182,17 @@ pub struct LogStateMessage {
     pub log: Vec<u8>,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RequestProfileMessage {
+    pub id: u32,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResponseProfileMessage {
+    pub profiles: Vec<Profile>,
+}
 
 
 

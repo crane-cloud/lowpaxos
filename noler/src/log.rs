@@ -77,15 +77,16 @@ impl Log {
         }
     }
 
+
     // Find a log entry by operation/propose number
     pub fn find(&self, opnum: u64) -> Option<&LogEntry> {
         //println!("viewstamp (view-last_op): <{} - {}> ; opnum: {}", entry.viewstamp.0, entry.viewstamp.1, opnum);
         if let Some(entry) = self.entries.get((opnum - self.start) as usize) {
             if entry.ballot.1 == opnum {
-                println!("An entry with opnum {} was found, has the same viewstamp.last_op {}", opnum, entry.ballot.1);
+                println!("An entry with opnum {} was found, has the same ballot.last_op {}", opnum, entry.ballot.1);
                 Some(entry)
             } else {
-                println!("An entry with opnum {} was found, but it has a different viewstamp.last_op {} ", opnum, entry.ballot.1);
+                println!("An entry with opnum {} was found, but it has a different ballot.last_op {} ", opnum, entry.ballot.1);
                 None
             }
         } else {

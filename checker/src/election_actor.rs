@@ -69,6 +69,7 @@ pub enum KvStoreMsg<RequestId, Key, Value, InternalMsg> {
     GetOk(RequestId, Key, Value),
 }
 
+
 use NolerMsg::*;
 
 impl <Ballot, NolerValue, ConfigSr, InternalMsg> NolerMsg <Ballot, NolerValue, ConfigSr, InternalMsg> {

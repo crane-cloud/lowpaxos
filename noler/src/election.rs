@@ -48,7 +48,7 @@ pub fn start_election_cycle(replica: &mut NolerReplica, election_type: ElectionT
     replica.leadership_vote_timeout.stop();
 
 
-    for r in replica.config.replicas.iter() {
+    for _r in replica.config.replicas.iter() {
             
         if replica.id != replica.id {
             //Create a RequestVoteMessage with term + 1
@@ -59,7 +59,7 @@ pub fn start_election_cycle(replica: &mut NolerReplica, election_type: ElectionT
                 ballot: (replica.ballot.0 + 1, replica.ballot.1 + 1),
                 //propose_term: replica.propose_term + 1,
                 replica_profile: {
-                    if let Some(profile) = replica.monitor.get((replica.id - 1) as usize, (replica.id - 1) as usize) { profile.get_x() }
+                    if let Some(profile) = replica.monitor.get((replica.id - 1) as usize) { profile.get_x() }
                     else { 0 }
                 },
                 election_type: election_type,

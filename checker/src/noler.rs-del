@@ -1,5 +1,5 @@
 // use checker::election_tester::ElectionTester;
-use checker::semantics::NolerElection;
+use checker::semantics::Noler;
 use noler::message::ElectionType;
 use noler::constants::*;
 use noler::role::Role;
@@ -24,7 +24,7 @@ use std::net::{SocketAddrV4, Ipv4Addr};
 use stateright::actor::spawn;
 use rand::Rng;
 
-use checker::election_actor::{NolerElectionActor, NolerElectionMsg};
+use checker::election_actor::{NolerActor, NolerMsg, NolerMsg::*};
 use checker::leaderelection_tester::LeaderElectionTester;
 
 type Ballot = (u32, u64);
@@ -32,14 +32,14 @@ type Ballot = (u32, u64);
 // type Value = char;
 // type Request = (RequestId, Id, Option<Value>);
 
-//type NolerValue = (Role, ElectionType, u8); //KV Operation (key, option<value>)
+type NolerValue = (Role, ElectionType, u8); //KV Operation (key, option<value>)
 
 // use checker::noler_msg_checker::NolerMsg::*;
 use checker::noler_msg_checker::ElectionTimer::*;
 // use checker::noler_msg_checker::*;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct NolerElectionState {
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
+struct NolerState {
     role: Role,
     status: u8,
     ballot: Ballot,
@@ -51,14 +51,14 @@ struct NolerElectionState {
 }
 
 #[derive(Clone, Debug)]
-struct NolerElectionOpActor {
+struct NolerOpActor {
     peer_ids: Vec<Id>,
 }
 
 
-impl Actor for NolerElectionOpActor {
-    type Msg = NolerElectionMsg<Ballot, ConfigSr, checker::noler_msg_checker::NolerMsg>;
-    type State  = NolerElectionState;
+impl Actor for NolerOpActor {
+    type Msg = NolerMsg<Ballot, NolerValue, ConfigSr, checker::noler_msg_checker::NolerMsg>;
+    type State  = NolerState;
     type Timer = checker::noler_msg_checker::ElectionTimer;
 
     fn name(&self) -> String {
@@ -79,9 +79,11 @@ impl Actor for NolerElectionOpActor {
                 }
 
                 //let profile = Profile::new(rand::thread_rng().gen_range(0..100));
-                let profile = Profile::new(((j.wrapping_mul(21)^i.wrapping_mul(13)) % 101) as u8);
+
+                let profile = Profile::new(50);
 
                 matrix.set(self.peer_ids[i], profile).unwrap();
+
             }
         }
 
@@ -106,7 +108,7 @@ impl Actor for NolerElectionOpActor {
         o.set_timer(LeaderInitTimeout,
             Duration::from_secs(init_timer)..Duration::from_secs(init_timer));
 
-        NolerElectionState {
+        NolerState {
             role: Role::Member,
             status: INITIALIZATION,
             ballot: (0, 0),
@@ -129,7 +131,7 @@ impl Actor for NolerElectionOpActor {
     ) {
 
         match msg {
-            NolerElectionMsg::NolerRequestVote(ballot, (_replica_role, election_type, profile)) => {
+            RequestVote(ballot, (_replica_role, election_type, profile)) => {
                 let state = state.to_mut();
 
                 /////////////////////////////////////////////////////////////////
@@ -144,7 +146,7 @@ impl Actor for NolerElectionOpActor {
                                 state.voted = Some((src, ballot, election_type));
                                 o.send(
                                     src,
-                                    NolerElectionMsg::NolerResponseVote(ballot)
+                                    ResponseVote(ballot)
                                 );
 
                                 //Start the leadership vote timeout
@@ -166,7 +168,7 @@ impl Actor for NolerElectionOpActor {
 
                             o.send(
                                 src,
-                                NolerElectionMsg::NolerResponseVote(ballot),
+                                ResponseVote(ballot),
                             );
                         }
                     }
@@ -183,7 +185,7 @@ impl Actor for NolerElectionOpActor {
                         //duplicate vote request - resend response
                         o.send(
                             src,
-                            NolerElectionMsg::NolerResponseVote(ballot),
+                            ResponseVote(ballot),
                         );
 
                         return;
@@ -207,7 +209,7 @@ impl Actor for NolerElectionOpActor {
 
                                         o.send(
                                             src,
-                                            NolerElectionMsg::NolerResponseVote(ballot),
+                                            ResponseVote(ballot),
                                         );
                                     }
                                     Role::Candidate => {
@@ -216,7 +218,7 @@ impl Actor for NolerElectionOpActor {
                                             state.voted = Some((src, ballot, election_type));
                                             o.send(
                                                 src,
-                                                NolerElectionMsg::NolerResponseVote(ballot)
+                                                ResponseVote(ballot)
                                             );
                                         }
 
@@ -240,13 +242,13 @@ impl Actor for NolerElectionOpActor {
 
                                 o.send(
                                     src,
-                                    NolerElectionMsg::NolerResponseVote(ballot)
+                                    ResponseVote(ballot)
                                 );
 
                             }
 
                             _ => {
-                                //log::info!("{}: only timeout & degraded elections allowed - received {:?} and ballot {:?}", idx, election_type, ballot);
+                                log::info!("{}: only timeout & degraded elections allowed - received {:?} and ballot {:?}", idx, election_type, ballot);
                                 return;
                             }
                         }
@@ -286,7 +288,7 @@ impl Actor for NolerElectionOpActor {
                                                 state.voted = Some((src, ballot, election_type));
                                                 o.send(
                                                     src,
-                                                    NolerElectionMsg::NolerResponseVote(ballot)
+                                                    ResponseVote(ballot)
                                                 );
                 
                                                 //Start the leadership vote timeout
@@ -307,7 +309,7 @@ impl Actor for NolerElectionOpActor {
                                             state.voted = Some((src, ballot, election_type));
                                             o.send(
                                                 src, 
-                                                NolerElectionMsg::NolerResponseVote(ballot)
+                                                ResponseVote(ballot)
                                             );
                                         }
                                     },
@@ -317,7 +319,7 @@ impl Actor for NolerElectionOpActor {
                                         state.voted = Some((src, ballot, election_type));
                                         o.send(
                                             src, 
-                                            NolerElectionMsg::NolerResponseVote(ballot)
+                                            ResponseVote(ballot)
                                         );
                                     },
 
@@ -338,7 +340,7 @@ impl Actor for NolerElectionOpActor {
                                                 state.voted = Some((src, ballot, election_type));
                                                 o.send(
                                                     src,
-                                                    NolerElectionMsg::NolerResponseVote(ballot)
+                                                    ResponseVote(ballot)
                                                 );
                 
                                                 //Start the leadership vote timeout
@@ -359,7 +361,7 @@ impl Actor for NolerElectionOpActor {
                                             state.voted = Some((src, ballot, election_type));
                                             o.send(
                                                 src, 
-                                                NolerElectionMsg::NolerResponseVote(ballot)
+                                                ResponseVote(ballot)
                                             );
                                         }
                                     },
@@ -369,7 +371,7 @@ impl Actor for NolerElectionOpActor {
                                         state.voted = Some((src, ballot, election_type));
                                         o.send(
                                             src, 
-                                            NolerElectionMsg::NolerResponseVote(ballot)
+                                            ResponseVote(ballot)
                                         );
                                     },
 
@@ -403,7 +405,7 @@ impl Actor for NolerElectionOpActor {
                         //duplicate vote request - resend response
                         o.send(
                             src,
-                            NolerElectionMsg::NolerResponseVote(ballot)
+                            ResponseVote(ballot)
                         );
 
                         return;
@@ -429,7 +431,7 @@ impl Actor for NolerElectionOpActor {
 
                                         o.send(
                                             src,
-                                            NolerElectionMsg::NolerResponseVote(ballot)
+                                            ResponseVote(ballot)
                                         );
 
                                         o.set_timer(LeaderVoteTimeout, 
@@ -474,7 +476,7 @@ impl Actor for NolerElectionOpActor {
 
                                         o.broadcast(
                                             &self.peer_ids,
-                                            &NolerElectionMsg::NolerConfig(ballot, config.clone()),
+                                            &Config(ballot, config.clone()),
                                         );
 
                                     }
@@ -486,7 +488,7 @@ impl Actor for NolerElectionOpActor {
                                             state.voted = Some((src, ballot, election_type));
                                             o.send(
                                                 src,
-                                                NolerElectionMsg::NolerResponseVote(ballot)
+                                                ResponseVote(ballot)
                                             );
                                         }
 
@@ -502,7 +504,7 @@ impl Actor for NolerElectionOpActor {
                                         state.voted = Some((src, ballot, election_type));
                                         o.send(
                                             src, 
-                                            NolerElectionMsg::NolerResponseVote(ballot)
+                                            ResponseVote(ballot)
                                         );
                                     }
                                 }
@@ -511,7 +513,7 @@ impl Actor for NolerElectionOpActor {
                                     state.voted = Some((src, ballot, election_type));
                                     o.send(
                                         src, 
-                                        NolerElectionMsg::NolerResponseVote(ballot)
+                                        ResponseVote(ballot)
                                     );
                                 }
                                 Role::Member => {
@@ -559,7 +561,7 @@ impl Actor for NolerElectionOpActor {
 
                                     o.broadcast(
                                         &self.peer_ids,
-                                        &NolerElectionMsg::NolerConfig(ballot, config.clone()),
+                                        &Config(ballot, config.clone()),
                                     );
                                 }
 
@@ -570,7 +572,7 @@ impl Actor for NolerElectionOpActor {
                                             state.voted = Some((src, ballot, election_type));
                                             o.send(
                                                 src,
-                                                NolerElectionMsg::NolerResponseVote(ballot)
+                                                ResponseVote(ballot)
                                             );
                                         }
 
@@ -585,7 +587,7 @@ impl Actor for NolerElectionOpActor {
                                         state.voted = Some((src, ballot, election_type));
                                         o.send(
                                             src, 
-                                            NolerElectionMsg::NolerResponseVote(ballot)
+                                            ResponseVote(ballot)
                                         );
                                     }
                                 }
@@ -595,7 +597,7 @@ impl Actor for NolerElectionOpActor {
                                     state.voted = Some((src, ballot, election_type));
                                     o.send(
                                         src, 
-                                        NolerElectionMsg::NolerResponseVote(ballot)
+                                        ResponseVote(ballot)
                                     );
                                 }
 
@@ -613,7 +615,7 @@ impl Actor for NolerElectionOpActor {
                             state.voted = Some((src, ballot, election_type));
                             o.send(
                                 src, 
-                                NolerElectionMsg::NolerResponseVote(ballot)
+                                ResponseVote(ballot)
                             );
                         }
 
@@ -622,17 +624,17 @@ impl Actor for NolerElectionOpActor {
                             state.voted = Some((src, ballot, election_type));
                             o.send(
                                 src, 
-                                NolerElectionMsg::NolerResponseVote(ballot)
+                                ResponseVote(ballot)
                             );
                         }
                     }
                 }
             }
 
-            NolerElectionMsg::NolerResponseVote(ballot) if ballot == (state.ballot.0 + 1, state.ballot.1 + 1) => {
+            ResponseVote(ballot) if ballot == (state.ballot.0 + 1, state.ballot.1 + 1) => {
                 let state = state.to_mut();
                 
-                //log::info!("{} now checking for quorum....", idx);
+                log::info!("{} now checking for quorum....", idx);
 
                 state.leadership_quorum.insert(src, Some(ballot));
 
@@ -641,9 +643,9 @@ impl Actor for NolerElectionOpActor {
                 if state.leadership_quorum.len() == majority(self.peer_ids.len() + 1) {
                     
                     //print the votes
-                    //for (k, v) in state.leadership_quorum.iter() {
-                        //log::info!("{}: {:?} - {:?}", idx, k, v);
-                    //}
+                    for (k, v) in state.leadership_quorum.iter() {
+                        log::info!("{}: {:?} - {:?}", idx, k, v);
+                    }
 
                     state.status = NORMAL;
                     state.role = Role::Leader;
@@ -675,7 +677,7 @@ impl Actor for NolerElectionOpActor {
                     config.ballot = state.ballot;
 
                     o.broadcast(&self.peer_ids, 
-                        &NolerElectionMsg::NolerConfig(ballot, config.clone()),
+                        &Config(ballot, config.clone()),
                     );
 
                     //Start the leader lease timeout
@@ -685,12 +687,12 @@ impl Actor for NolerElectionOpActor {
                 }
 
                 else {
-                    //log::info!("{} is still waiting for quorum....", idx);
+                    log::info!("{} is still waiting for quorum....", idx);
                 }
 
             }
 
-            NolerElectionMsg::NolerConfig(ballot, config) if state.role != Role::Leader => {
+            Config(ballot, config) if state.role != Role::Leader => {
                 let state = state.to_mut();
 
                 o.cancel_timer(LeadershipVoteTimeout);
@@ -698,17 +700,12 @@ impl Actor for NolerElectionOpActor {
                 o.cancel_timer(LeaderInitTimeout);
 
                 if config.ballot > state.ballot {
-                    //Check if I was the previous leader
-
-
-                    
                     state.config = config.clone();
                     state.leader = Some((config.leader, ballot));
                     state.ballot = ballot;
 
-                    for replica in state.config.replicas.iter() { //Not includes the leader itself
+                    for replica in state.config.replicas.iter() {
                         if replica.id == idx {
-                            log::info!("{}: role changed from {:?} to {:?}", idx, state.role, replica.role);
                             state.role = replica.role;
                         }
                     }
@@ -760,7 +757,7 @@ impl Actor for NolerElectionOpActor {
                 }
             }
 
-            NolerElectionMsg::NolerRequestConfig(ballot) if state.status == NORMAL && state.role == Role::Leader => {
+            RequestConfig(ballot) if state.status == NORMAL && state.role == Role::Leader => {
                 let state = state.to_mut();
 
                 if ballot > state.ballot {
@@ -769,11 +766,11 @@ impl Actor for NolerElectionOpActor {
                 }
 
                 else {
-                    o.send(src, NolerElectionMsg::NolerConfig(ballot, state.config.clone()));
+                    o.send(src, Config(ballot, state.config.clone()));
                 }
             }
 
-            NolerElectionMsg::NolerHeartBeat(ballot, profile) if state.status == NORMAL && (state.role == Role::Candidate || state.role == Role::Witness) => {
+            HeartBeat(ballot, profile) if state.status == NORMAL && (state.role == Role::Candidate || state.role == Role::Witness) => {
                 let state = state.to_mut();
 
                 if ballot >= state.ballot {
@@ -800,7 +797,7 @@ impl Actor for NolerElectionOpActor {
                                         continue;
                                     }
                                     o.send(dst,
-                                        NolerElectionMsg::NolerRequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
+                                        RequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
                                             (state.role, ElectionType::Profile, {
                                                     if let Some(profile) = state.monitor.get(&dst) {
                                                         profile.get_x()
@@ -844,7 +841,7 @@ impl Actor for NolerElectionOpActor {
                                         continue;
                                     }
                                     o.send(dst,
-                                        NolerElectionMsg::NolerRequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
+                                        RequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
                                             (state.role, ElectionType::Profile, {
                                                     if let Some(profile) = state.monitor.get(&dst) {
                                                         profile.get_x()
@@ -866,17 +863,17 @@ impl Actor for NolerElectionOpActor {
 
                 else {
                     // Request for config from the leader ** Leader may always be ahead
-                    o.send(state.leader.unwrap().0, NolerElectionMsg::NolerRequestConfig(ballot));
+                    o.send(state.leader.unwrap().0, RequestConfig(ballot));
 
                     return;
                 }
             }
 
-            NolerElectionMsg::NolerPollLeader(ballot) if state.status == NORMAL && state.role == Role::Leader => {
+            PollLeader(ballot) if state.status == NORMAL && state.role == Role::Leader => {
                 let state = state.to_mut();
 
                 if ballot <= state.ballot {
-                    o.send(src, NolerElectionMsg::NolerPollLeaderOk(ballot, state.monitor.get(&src).unwrap().get_x()));
+                    o.send(src, PollLeaderOk(ballot, state.monitor.get(&src).unwrap().get_x()));
                 }
 
                 else {
@@ -885,7 +882,7 @@ impl Actor for NolerElectionOpActor {
 
             }
 
-            NolerElectionMsg::NolerPollLeaderOk(ballot, profile) if state.status == NORMAL && state.role == Role::Candidate => {
+            PollLeaderOk(ballot, profile) if state.status == NORMAL && state.role == Role::Candidate => {
                 let state = state.to_mut();
 
                 if ballot >= state.ballot {
@@ -910,7 +907,7 @@ impl Actor for NolerElectionOpActor {
                                 continue;
                            }
                             o.send(dst,
-                                NolerElectionMsg::NolerRequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
+                                RequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
                                     (state.role, ElectionType::Profile, {
                                             if let Some(profile) = state.monitor.get(&dst) {
                                                 profile.get_x()
@@ -965,7 +962,7 @@ impl Actor for NolerElectionOpActor {
                              continue;
                         }
                         o.send(dst,
-                            NolerElectionMsg::NolerRequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
+                            RequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
                                 (state.role, ElectionType::Normal, {
                                         if let Some(profile) = state.monitor.get(&dst) {
                                             profile.get_x()
@@ -985,7 +982,7 @@ impl Actor for NolerElectionOpActor {
                             continue;
                        }
                         o.send(dst,
-                            NolerElectionMsg::NolerRequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
+                            RequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
                                 (state.role, ElectionType::Degraded, {
                                         if let Some(profile) = state.monitor.get(&dst) {
                                             profile.get_x()
@@ -1008,7 +1005,7 @@ impl Actor for NolerElectionOpActor {
                             continue;
                        }
                         o.send(dst,
-                            NolerElectionMsg::NolerRequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
+                            RequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
                                 (state.role, ElectionType::Timeout, {
                                         if let Some(profile) = state.monitor.get(&dst) {
                                             profile.get_x()
@@ -1031,7 +1028,7 @@ impl Actor for NolerElectionOpActor {
                             continue;
                        }
                         o.send(dst,
-                            NolerElectionMsg::NolerRequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
+                            RequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
                                 (state.role, ElectionType::Offline, {
                                         if let Some(profile) = state.monitor.get(&dst) {
                                             profile.get_x()
@@ -1054,7 +1051,7 @@ impl Actor for NolerElectionOpActor {
                             continue;
                        }
                         o.send(dst,
-                            NolerElectionMsg::NolerRequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
+                            RequestVote((state.ballot.0 + 1, state.ballot.1 + 1), 
                                 (state.role, ElectionType::Offline, {
                                         if let Some(profile) = state.monitor.get(&dst) {
                                             profile.get_x()
@@ -1071,7 +1068,7 @@ impl Actor for NolerElectionOpActor {
     
                     //Send the poll leader message to the leader
                     o.send(state.leader.unwrap().0,
-                        NolerElectionMsg::NolerPollLeader(state.ballot)
+                        PollLeader(state.ballot)
                     );
                 }
     
@@ -1084,7 +1081,7 @@ impl Actor for NolerElectionOpActor {
                             continue;
                        }
                        o.send(dst,
-                        NolerElectionMsg::NolerHeartBeat(state.ballot, state.monitor.get(&dst).unwrap().get_x())
+                        HeartBeat(state.ballot, state.monitor.get(&dst).unwrap().get_x())
                         );
                     }
                     o.set_timer(LeaderLeaseTimeout, 
@@ -1098,15 +1095,15 @@ impl Actor for NolerElectionOpActor {
 }
 
 #[derive(Clone, Debug)]
-struct NolerElectionOpModelCfg {
+struct NolerOpModelCfg {
     //client_count: usize,
     peer_count: usize,
     config: ConfigSr,
-    network: Network<<NolerElectionOpActor as Actor>::Msg>,
+    network: Network<<NolerOpActor as Actor>::Msg>,
 }
 
-impl NolerElectionOpModelCfg {
-    fn new(peer_count: usize, start_port: u16, network: Network<<NolerElectionOpActor as Actor>::Msg>) -> Self {
+impl NolerOpModelCfg {
+    fn new(peer_count: usize, start_port: u16, network: Network<<NolerOpActor as Actor>::Msg>) -> Self {
         let mut replicas = Vec::new();
 
         for i in 0..peer_count {
@@ -1122,7 +1119,7 @@ impl NolerElectionOpModelCfg {
 
         let config = ConfigSr::new((0, 0), peer_count, replicas);
 
-        NolerElectionOpModelCfg {
+        NolerOpModelCfg {
             //client_count: 1,
             peer_count,
             config,
@@ -1134,24 +1131,24 @@ impl NolerElectionOpModelCfg {
     fn into_model(
         self,
     ) -> ActorModel<
-        NolerElectionActor<NolerElectionOpActor>,
+        NolerActor<NolerOpActor>,
         Self,
-        LeaderElectionTester<Id, NolerElection<Ballot, Id, ConfigSr>>>
+        LeaderElectionTester<Id, Noler<Ballot, ConfigSr>>>
 
     {
         ActorModel::new(
             self.clone(),
-            LeaderElectionTester::new(NolerElection((0, 0), None, None)),
+            LeaderElectionTester::new(Noler((0, 0), None)),
         )
         .actors((0..self.peer_count).map(|i| {
-            NolerElectionActor::Server(NolerElectionOpActor {
+            NolerActor::Server(NolerOpActor {
                 peer_ids: model_peers(i, self.peer_count),
             })
         }))
         .init_network(self.network)
-        .property(Expectation::Sometimes, "leader elected sometimes", |_, state| {
+        .property(Expectation::Always, "A leader will be elected", |_, state| {
             state.network.iter_deliverable().any(|env| {
-                if let NolerElectionMsg::NolerConfig(ballot, config) = env.msg {
+                if let Config(ballot, config) = env.msg {
                     let leader = config.leader;
                     log::info!("Leader elected: {} with ballot {:?}", leader, ballot);
                     true
@@ -1173,15 +1170,6 @@ impl NolerElectionOpModelCfg {
         //         }
         //     })
         // })
-        // .property(Expectation::Sometimes, "leader elected", |_, state| {
-        //     for env in state.network.iter_deliverable() {
-        //         if let RegisterMsg::Internal(NolerMsg::Config(ConfigMessage {leader, ..})) = env.msg {
-        //             log::info!("Leader elected: {}", leader);
-        //             return true;
-        //         }
-        //     }
-        //     false
-        // })
         // .property(Expectation::Sometimes, "value chosen", |_, state| {
         //     for env in state.network.iter_deliverable() {
         //         if let RegisterMsg::GetOk(_req_id, value) = env.msg {
@@ -1192,17 +1180,8 @@ impl NolerElectionOpModelCfg {
         //     }
         //     false
         // })
-        // .property(Expectation::Sometimes, "vote request", |_, state| {
-        //     state.network.iter_deliverable().any(|env| {
-        //         if let NolerElectionMsg::NolerRequestVote(..) = env.msg {
-        //             true
-        //         } else {
-        //             false
-        //         }
-        //     })
-        // })
-        .record_msg_in(NolerElectionMsg::record_returns)
-        .record_msg_out(NolerElectionMsg::record_invocations)
+        .record_msg_in(NolerMsg::record_returns)
+        .record_msg_out(NolerMsg::record_invocations)
     }
 }
 
@@ -1211,12 +1190,12 @@ impl NolerElectionOpModelCfg {
 mod test {
     use super::*;
     #[test]
-    fn can_model_noleropsr() {
+    fn can_model_noler() {
         let peer_count = 5;
         let start_port = 3000;
 
-        let checker = NolerElectionOpModelCfg::new(
-            peer_count, start_port, Network::new_ordered([])) //new_unordered_nonduplicating
+        let checker = NolerOpModelCfg::new(
+            peer_count, start_port, Network::new_unordered_nonduplicating([])) //new_unordered_nonduplicating
             .into_model()
             .checker()
             .spawn_dfs()
@@ -1241,7 +1220,7 @@ fn main() -> Result<(), pico_args::Error> {
 
             let peer_count = args
                 .opt_free_from_str()?
-                .unwrap_or(11);
+                .unwrap_or(5);
 
             let start_port = args
                 .opt_free_from_str()?
@@ -1249,7 +1228,19 @@ fn main() -> Result<(), pico_args::Error> {
 
             println!("Model checking Noler with {} peers, network {:?} & ports starting from {}", peer_count, network, start_port);
 
-            let check = NolerElectionOpModelCfg::new(peer_count, start_port, network);
+            let check = NolerOpModelCfg::new(peer_count, start_port, network);
+
+            // let actor_model = NolerOpModelCfg::new(
+            //     peer_count, start_port, Network::new_unordered_nonduplicating([])) //new_unordered_nonduplicating
+            //     .into_model();
+    
+            // let init_states = actor_model
+            //     .init_states()
+            //     .iter()
+            //     .map(|s| serde_json::to_string_pretty(&s)).collect::<Vec<_>>();
+    
+            // log::info!("Initial states: {:#?}", init_states);
+            
 
             check
             .into_model()
@@ -1257,6 +1248,8 @@ fn main() -> Result<(), pico_args::Error> {
             .threads(num_cpus::get())
             .spawn_dfs()
             .report(&mut WriteReporter::new(&mut std::io::stdout()));
+
+            
         }
 
         Some("explore") => {
@@ -1277,7 +1270,7 @@ fn main() -> Result<(), pico_args::Error> {
 
             println!("Exploring Noler state space with network {:?} and address {}: {} peers with start port {}.", network, address, peer_count, start_port);
 
-            let explore = NolerElectionOpModelCfg::new(peer_count, start_port, network);
+            let explore = NolerOpModelCfg::new(peer_count, start_port, network);
 
             explore
             .into_model()
@@ -1313,31 +1306,31 @@ fn main() -> Result<(), pico_args::Error> {
                 vec![
                     (
                         id0,
-                        NolerElectionOpActor {
+                        NolerOpActor {
                             peer_ids: vec![id1, id2, id3, id4],
                         },
                     ),
                     (
                         id1,
-                        NolerElectionOpActor {
+                        NolerOpActor {
                             peer_ids: vec![id0, id2, id3, id4],
                         },
                     ),
                     (
                         id2,
-                        NolerElectionOpActor {
+                        NolerOpActor {
                             peer_ids: vec![id0, id1, id3, id4],
                         },
                     ),
                     (
                         id3,
-                        NolerElectionOpActor {
+                        NolerOpActor {
                             peer_ids: vec![id0, id1, id2, id4],
                         },
                     ),
                     (
                         id4,
-                        NolerElectionOpActor {
+                        NolerOpActor {
                             peer_ids: vec![id0, id1, id2, id3],
                         },
                     ),                    
@@ -1352,7 +1345,7 @@ fn main() -> Result<(), pico_args::Error> {
             println!("  ./noler spawn");
             println!(
                 "NETWORK: {}",
-                Network::<<NolerElectionOpActor as Actor>::Msg>::names().join(" | ")
+                Network::<<NolerOpActor as Actor>::Msg>::names().join(" | ")
             );
         }
     }

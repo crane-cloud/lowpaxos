@@ -164,8 +164,8 @@ impl NolerClient {
             match result {
                 Ok(result) => {
                     if result != request_id {
-                        eprintln!("Client: Error: Request id {} was unsuccessful", request_id);
-                        //Resend the request
+                        //eprintln!("Client: Error: Request id {} was unsuccessful", request_id);
+                        //Resend the request?
                         //self.send_request(&serialized_request.as_bytes());
                     }
 
@@ -270,8 +270,8 @@ impl NolerClient {
                 }
             }
 
-            Err(err) => {
-                eprintln!("Client Error - No response {}", err);
+            Err(_err) => {
+                //eprintln!("Client Error - No response {}", err);
                 Ok(0)
             }
         }
@@ -468,6 +468,8 @@ fn main() {
         let log = log.clone();
 
         run_noler_client(id, config, transport, requests, conflicts, writes, rounds, log);
+        println!("End time: {}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
+
     }
 
     thread::sleep(Duration::from_secs(1));

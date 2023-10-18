@@ -31,6 +31,11 @@ impl ProfileMatrix {
         self.data.get(row).and_then(|r| r.get(col))
     }
 
+    pub fn get_row(&self, row: usize) -> Option<Vec<Profile>> {
+        self.data.get(row).cloned()
+        //self.data.get(row)
+    }
+
     pub fn set(&mut self, row: usize, col: usize, profile: Profile) -> Result<(), &'static str> {
         if row < self.data.len() && col < self.data[row].len() {
             self.data[row][col] = profile;

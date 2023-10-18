@@ -78,8 +78,8 @@ impl Actor for NolerElectionOpActor {
                     continue;
                 }
 
-                let profile = Profile::new(rand::thread_rng().gen_range(0..100));
-                //let profile = Profile::new(((j.wrapping_mul(21)^i.wrapping_mul(13)) % 101) as u8);
+                //let profile = Profile::new(rand::thread_rng().gen_range(0..100));
+                let profile = Profile::new(((j.wrapping_mul(21)^i.wrapping_mul(13)) % 101) as u8);
 
                 matrix.set(self.peer_ids[i], profile).unwrap();
             }
@@ -246,7 +246,7 @@ impl Actor for NolerElectionOpActor {
                             }
 
                             _ => {
-                                log::info!("{}: only timeout & degraded elections allowed - received {:?} and ballot {:?}", idx, election_type, ballot);
+                                //log::info!("{}: only timeout & degraded elections allowed - received {:?} and ballot {:?}", idx, election_type, ballot);
                                 return;
                             }
                         }
@@ -632,7 +632,7 @@ impl Actor for NolerElectionOpActor {
             NolerElectionMsg::NolerResponseVote(ballot) if ballot == (state.ballot.0 + 1, state.ballot.1 + 1) => {
                 let state = state.to_mut();
                 
-                log::info!("{} now checking for quorum....", idx);
+                //log::info!("{} now checking for quorum....", idx);
 
                 state.leadership_quorum.insert(src, Some(ballot));
 
@@ -641,9 +641,9 @@ impl Actor for NolerElectionOpActor {
                 if state.leadership_quorum.len() == majority(self.peer_ids.len() + 1) {
                     
                     //print the votes
-                    for (k, v) in state.leadership_quorum.iter() {
-                        log::info!("{}: {:?} - {:?}", idx, k, v);
-                    }
+                    //for (k, v) in state.leadership_quorum.iter() {
+                        //log::info!("{}: {:?} - {:?}", idx, k, v);
+                    //}
 
                     state.status = NORMAL;
                     state.role = Role::Leader;
@@ -685,7 +685,7 @@ impl Actor for NolerElectionOpActor {
                 }
 
                 else {
-                    log::info!("{} is still waiting for quorum....", idx);
+                    //log::info!("{} is still waiting for quorum....", idx);
                 }
 
             }
@@ -1241,7 +1241,7 @@ fn main() -> Result<(), pico_args::Error> {
 
             let peer_count = args
                 .opt_free_from_str()?
-                .unwrap_or(5);
+                .unwrap_or(11);
 
             let start_port = args
                 .opt_free_from_str()?

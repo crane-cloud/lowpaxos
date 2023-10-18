@@ -1,0 +1,83 @@
+---
+- hosts: peer_cloudlab
+  remote_user: amwotil
+  become: false
+
+  pre_tasks: #noler & network_tc_setup
+  - name: ensure that noler is running
+    systemd:
+      name: noler
+      state: started
+      enabled: yes
+    become: true
+
+  - name: ensure network_tc_setup.service is running
+    systemd:
+      name: network_tc_setup.service
+      state: started
+      enabled: yes
+    become: true
+
+  tasks:
+  - name: add configuration to /etc/network_tc_setup.sh # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
+    hosts: 10.10.1.1
+    copy: 
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/00/network_tc_setup-01.sh
+      dest: /etc/network_tc_setup.sh
+      mode: 0755
+    become: true
+
+  - name: add configuration to /etc/network_tc_setup.sh # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
+    hosts: 10.10.1.2
+    copy: 
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/00/network_tc_setup-02.sh
+      dest: /etc/network_tc_setup.sh
+      mode: 0755
+    become: true
+
+  - name: add configuration to /etc/network_tc_setup.sh # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
+    hosts: 10.10.1.3
+    copy: 
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/00/network_tc_setup-03.sh
+      dest: /etc/network_tc_setup.sh
+      mode: 0755
+    become: true
+
+  - name: add configuration to /etc/network_tc_setup.sh # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
+    hosts: 10.10.1.4
+    copy: 
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/00/network_tc_setup-04.sh
+      dest: /etc/network_tc_setup.sh
+      mode: 0755
+    become: true
+
+  - name: add configuration to /etc/network_tc_setup.sh # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
+    hosts: 10.10.1.5
+    copy: 
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/00/network_tc_setup-05.sh
+      dest: /etc/network_tc_setup.sh
+      mode: 0755
+    become: true
+
+  - name: restart the network_tc_setup service
+    systemd:
+      name: network_tc_setup.service
+      state: restarted
+    become: true
+
+
+
+- hosts: client_cloudlab #client_cloudlab -> monitor
+  remote_user: amwotil
+  become: false
+
+  tasks:
+  - name: stop the noler monitor
+    shell: pkill -f noler-monitor
+    ignore_errors: yes
+
+  - name: start monitor with new profiles
+    shell: noler-monitor -c config-cloudlab -p profiles-00
+    args:
+      chdir:  /proj/rip-PG0/lowpaxos/noler/evaluation
+    ignore_errors: yes

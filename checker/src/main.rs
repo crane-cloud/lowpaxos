@@ -17,6 +17,7 @@ use stateright::{Checker, Expectation, Model};
 use std::borrow::Cow;
 use std::time::Duration;
 use std::net::{SocketAddrV4, Ipv4Addr};
+use std::collections::BTreeSet;
 use stateright::actor::spawn;
 use rand::Rng;
 
@@ -47,8 +48,13 @@ struct NolerState {
     log:LogSR,
     data: KVStoreSR,
 
+    last_op: u64,
     commit_index: u64,
     execution_index: u64,
+
+    received: BTreeSet<(Id, RequestId)>,
+    delivered: BTreeSet<(Id, RequestId)>,
+
 }
 
 #[derive(Clone, Debug)]
@@ -122,8 +128,12 @@ impl Actor for NolerActor {
 
             log: LogSR::new(),
             data: KVStoreSR::new(),
+            last_op: 0,
             commit_index: 0,
             execution_index: 0,
+
+            received: BTreeSet::new(),
+            delivered: BTreeSet::new(),
         }
     }
 
@@ -139,7 +149,7 @@ impl Actor for NolerActor {
 
         match msg {
             KvStoreMsg::Set(request_id, key, value) if state.status == NORMAL && state.leader.is_some() => {
-                log::info!("{}: received Put request from {}", idx, src);
+                //log::info!("{}: received SET request from {} with ({},{},{})", idx, src, request_id, key, value);
                 let state = state.to_mut();
 
                 if state.role != Role::Leader {
@@ -156,9 +166,93 @@ impl Actor for NolerActor {
                     return;
                 }
 
+                //Determine if this request has been seen before
+                // if state.received.contains(&(src, request_id)) {
+                //     log::info!("{}: SET request already received", idx);
+                //     return;
+                // }
 
                 //let request_entry = state.log.find_by_request_id(request_id);
                 //let request_entry = state.log.find_by_request((request_id, src, Option::from(value)));
+                //let request_entry = state.log.find_by_request((request_id, src, key, Option::from(value)));
+                let request_entry = state.log.find_by_ballot_request_id(state.ballot, request_id);
+
+                if request_entry.is_some() {
+                    log::info!("{}: SET request already in the log with ballot: {:?}", idx, request_entry.unwrap().ballot);
+
+                    let entry_state = &request_entry.unwrap().state;
+
+                    //Check the status of the entry
+                    match entry_state {
+                        LogEntryState::Propose => {
+                            // Resend the request to peers
+                            o.broadcast(
+                                &self.peer_ids,
+                                &Internal(Propose {
+                                    id: idx,
+                                    ballot: request_entry.unwrap().ballot,
+                                    request: request_entry.unwrap().request,
+                                }),
+                            );
+                        },
+
+                        LogEntryState::Committed => {
+                            // A reply response is already logged - send it to the client
+                            let reply = request_entry.unwrap().reply.clone().unwrap();
+
+                            //Send the response to the client from log
+                            o.send(
+                                src,
+                                reply,
+                            );
+                        },
+
+                        LogEntryState::Executed => {
+                            // A reply response is already logged - send it to the client
+                            let reply = request_entry.unwrap().reply.clone().unwrap();
+
+                            //Send the response to the client from log
+                            o.send(
+                                src,
+                                reply,
+                            );
+                        }
+
+                        _ => {
+                            log::info!("{}: PUT request still under processing", idx);
+                            //return;
+                        }
+                    }
+                }
+
+                else {
+                    //Add to the log and broadcast the request to peers
+                    //log::info!("{}: adding SET request to the log", idx);
+                    state.last_op += 1; 
+
+                    let ballot = (state.ballot.0, state.last_op);
+                    //log::info!("{}: adding SET request to the log with ballot: {:?}", idx, ballot);
+
+                    let request = (request_id, src, key, Option::from(value));
+
+                    state.log.append(ballot, request, None, LogEntryState::Propose);
+
+                    o.broadcast(
+                        &self.peer_ids,
+                        &Internal(Propose {
+                            id: idx,
+                            ballot,
+                            request,
+                        }),
+                    )
+                }
+            }
+
+            Internal(SetInternal {request_id, src, key, value}) if state.status == NORMAL && state.role == Role::Leader =>  {
+                let state = state.to_mut();
+
+                log::info!("{}: received SET request from {} with ({},{},{})", idx, src, request_id, key, value);
+
                 let request_entry = state.log.find_by_request((request_id, src, key, Option::from(value)));
 
                 if request_entry.is_some() {
@@ -211,80 +305,11 @@ impl Actor for NolerActor {
 
                 else {
                     //Add to the log and broadcast the request to peers
-                    log::info!("{}: adding PUT request to the log", idx);
-                    let ballot = (state.ballot.0, state.ballot.1 + 1);
-                    let request = (request_id, src, key, Option::from(value));
-
-                    state.log.append(ballot, request, None, LogEntryState::Propose);
-
-                    o.broadcast(
-                        &self.peer_ids,
-                        &Internal(Propose {
-                            id: idx,
-                            ballot,
-                            request,
-                        }),
-                    )
-                }
-            }
-
-            Internal(SetInternal {request_id, src, key, value}) if state.status == NORMAL && state.role == Role::Leader =>  {
-                let state = state.to_mut();
-
-                let request_entry = state.log.find_by_request((request_id, src, key, Option::from(value)));
-
-                if request_entry.is_some() {
-                    log::info!("{}: PUT request already in the log with ballot: {:?}", idx, request_entry.unwrap().ballot);
-
-                    let entry_state = &request_entry.unwrap().state;
-
-                    //Check the status of the entry
-                    match entry_state {
-                        LogEntryState::Propose => {
-                            // Resend the request to peers
-                            o.broadcast(
-                                &self.peer_ids,
-                                &Internal(Propose {
-                                    id: idx,
-                                    ballot: request_entry.unwrap().ballot,
-                                    request: request_entry.unwrap().request,
-                                }),
-                            );
-                        },
-
-                        LogEntryState::Committed => {
-                            // A reply response is already logged - send it to the client
-                            let reply = request_entry.unwrap().reply.clone().unwrap();
-
-                            //Send the response to the client from log
-                            o.send(
-                                src,
-                                reply,
-                            );
-                        },
-
-                        LogEntryState::Executed => {
-                            // A reply response is already logged - send it to the client
-                            let reply = request_entry.unwrap().reply.clone().unwrap();
-
-                            //Send the response to the client from log
-                            o.send(
-                                src,
-                                reply,
-                            );
-                        }
-
-                        _ => {
-                            log::info!("{}: PUT request still under processing", idx);
-                            //return;
-                        }
-                    }
-                }
-
-                else {
-                    //Add to the log and broadcast the request to peers
                     log::info!("{}: adding request to the log", idx);
-                    let ballot = (state.ballot.0, state.ballot.1 + 1);
+
+                    state.last_op += 1;
+
+                    let ballot = (state.ballot.0, state.last_op);
                     let request = (request_id, src, key, Option::from(value));
                     state.log.append(ballot, request, None, LogEntryState::Propose);
 
@@ -627,7 +652,7 @@ impl Actor for NolerActor {
                                 }
                                     
                                 else { 
-                                    log::info!("{} only degraded election allowed here", idx);
+                                    //log::info!("{} only degraded election allowed here", idx);
                                     return; 
                                 }
                             }
@@ -898,7 +923,7 @@ impl Actor for NolerActor {
             Internal(ResponseVote (ResponseVoteMessage { id, ballot })) if ballot == (state.ballot.0 + 1, state.ballot.1 + 1) => {
                 let state = state.to_mut();
                 
-                log::info!("{} now checking for quorum....", idx);
+                //log::info!("{} now checking for quorum....", idx);
 
                 state.leadership_quorum.insert(id, Some(ballot));
 
@@ -941,7 +966,7 @@ impl Actor for NolerActor {
                 }
 
                 else {
-                    log::info!("{} is still waiting for quorum....", idx);
+                    //log::info!("{} is still waiting for quorum....", idx);
                 }
 
             }
@@ -974,7 +999,7 @@ impl Actor for NolerActor {
                             //change status to normal
                             state.status = NORMAL;
 
-                            log::info!("{}: now a candidate - start timers", idx);
+                            //log::info!("{}: now a candidate - start timers", idx);
                             // o.set_timer(POLL_LEADER_TIMER
                             //     , Duration::from_secs(POLL_LEADER_TIMEOUT)..Duration::from_secs(POLL_LEADER_TIMEOUT));
                             // o.set_timer(POLL_LEADER_TIMEOUT, 
@@ -986,7 +1011,7 @@ impl Actor for NolerActor {
                         Role::Witness => {
                             //change status to normal
                             state.status = NORMAL;
-                            log::info!("{}: now a witness - start timers", idx);
+                            //log::info!("{}: now a witness - start timers", idx);
                             //o.set_timer(HEARTBEAT_TIMEOUT, 
                             //    Duration::from_secs(HEARTBEAT_TIMEOUT)..Duration::from_secs(HEARTBEAT_TIMEOUT));
                         }
@@ -1007,14 +1032,26 @@ impl Actor for NolerActor {
             Internal(Propose {id, ballot, request}) if state.status == NORMAL && state.role != Role::Leader => {
                 let state = state.to_mut();
 
-                if ballot == state.ballot {
-                    //Request has already been processed & committed
-                    log::info!("{}: propose request already committed|agreed", idx);
+                //log::info!("{}: received propose request from {} with ballot: {:?}", idx, id, ballot);
+
+                if ballot < state.ballot {
+                    log::info!("{}: stale propose request", idx);
+                    return;
                 }
 
-                else if ballot.0 == state.ballot.0 && ballot.1 > state.ballot.1 { // how far behind can a member be?
+                if ballot.1 < state.last_op {
+                    log::info!("{}: stale propose request", idx);
+                    return;
+                }
+
+                // if ballot == state.ballot {
+                //     //Request has already been processed & committed
+                //     log::info!("{}: propose request already committed|agreed", idx);
+                // }
+
+                else { // how far behind can a member be?
                     //Check if the entry is already in the log
-                    let entry = state.log.find(ballot);
+                    let entry = state.log.find(ballot.1);
 
                     if entry.is_some() {
                         log::info!("{}: entry already in the log", idx); //ToDo: check the status of the entry
@@ -1040,65 +1077,69 @@ impl Actor for NolerActor {
 
                     else {
 
-                        //Add to the log and respond with ProposeOk
-                        state.log.append(ballot, request, None, LogEntryState::Proposed);
+                        if ballot.1 > state.last_op + 1 {
+                            log::info!("{}: propose request too far ahead", idx); //request for state
+                            o.send(
+                                id,
+                                Internal(RequestState {
+                                    id: idx,
+                                    ballot: state.ballot,
+                                    commit_index: state.commit_index,
+                                }),
+                            );
+                            return;
+                        }
 
-                        log::info!("{}: entry added to the log - send proposeok to leader", idx);
-                        o.send(
-                            id,
-                            Internal(ProposeOk {
-                                id: idx,
-                                ballot,
-                                commit_index: state.commit_index,
-                                request,
-                            }),
-                        );
+                        else if ballot.1 == state.last_op + 1 {
+                            //Add to the log and respond with ProposeOk
+                            state.log.append(ballot, request, None, LogEntryState::Proposed);
+
+                            log::info!("{}: entry added to the log - send proposeok to leader", idx);
+                            o.send(
+                                id,
+                                Internal(ProposeOk {
+                                    id: idx,
+                                    ballot,
+                                    commit_index: state.commit_index,
+                                    request,
+                                }),
+                            );
+                        }
                     }
 
                 }
-
-                else if ballot > state.ballot {
-                    //Request has already been processed & committed
-                    log::info!("{}: a new leader - request for state", idx);
-                }
-
-                else {
-                    log::info!("{}: stale propose request", idx);
-                    //return;
-                }
-
 
             }
 
             Internal (ProposeOk {id, ballot, commit_index, request}) if state.status == NORMAL && state.role == Role::Leader => {
                 let state = state.to_mut();
 
-                if ballot.0 == state.ballot.0 && ballot.1 == state.ballot.1 + 1 {
-                    log::info!("{}: leader received ProposeOk from {}", idx, id);
+                // if ballot.0 == state.ballot.0 && ballot.1 == state.ballot.1 + 1 {
+                //     log::info!("{}: leader received ProposeOk from {}", idx, id);
                     //Check if the entry is already in the log
 
-                    let entry = state.log.find(ballot); //Check this request & ballot match
+                let entry = state.log.find(ballot.1); //Check this request & ballot match
 
-                    if entry.is_some() && entry.unwrap().state == LogEntryState::Propose {
-                        //Check the quorum on the ProposeOk
+                if entry.is_some() && entry.unwrap().state == LogEntryState::Propose {
+                    //Check the quorum on the ProposeOk
 
-                        state.propose_quorum.insert((id, ballot), request);
-                        log::info!("{}: propose quorum has {} votes", idx, state.propose_quorum.len());
+                    state.propose_quorum.insert((id, ballot), request);
+                    log::info!("{}: propose quorum has {} votes", idx, state.propose_quorum.len());
 
-                        //print the propose quorum
-                        for (k, v) in state.propose_quorum.iter() {
-                            log::info!("{}: {:?} -> {:?}", idx, k, v);
-                        }
+                    //print the propose quorum
+                    for (k, v) in state.propose_quorum.iter() {
+                        log::info!("{}: {:?} -> {:?}", idx, k, v);
+                    }
 
-                        if state.propose_quorum.len() == majority(self.peer_ids.len() + 1) {
+                    if state.propose_quorum.len() == majority(self.peer_ids.len() + 1) {
 
-                            log::info!("{}: consensus reached on log: {:?} <> request: {:?}", idx, entry.unwrap().request, request);
+                        log::info!("{}: consensus reached on log: {:?} <> request: {:?}", idx, entry.unwrap().request, request);
 
-                            //Update the log with committed
-                            state.log.set_status(ballot, LogEntryState::Committed);
+                        //Update the log with committed
+                        state.log.set_status(ballot.1, LogEntryState::Committed);
 
                             //Update current ballot & commit index
-                            state.ballot = ballot;
+                            state.ballot.1 = ballot.1; //op-number
                             state.commit_index = ballot.1;
 
                             //Determine the type of operation
@@ -1107,10 +1148,10 @@ impl Actor for NolerActor {
                                 let result = state.data.get(request.0, request.2);
 
                                 //Set the log with the result of the kvstore execution
-                                state.log.set_reply(ballot, result.clone());
+                                state.log.set_reply(ballot.1, result.clone());
 
                                 //Request has now been executed
-                                state.log.set_status(ballot, LogEntryState::Executed);
+                                state.log.set_status(ballot.1, LogEntryState::Executed);
                                 state.execution_index = ballot.1;
 
                                 //Send response to the client
@@ -1135,10 +1176,10 @@ impl Actor for NolerActor {
                                 let result = state.data.set(request.0, request.2, request.3.unwrap());
 
                                 //Set the log with the result of the kvstore execution
-                                state.log.set_reply(ballot, result.clone());
+                                state.log.set_reply(ballot.1, result.clone());
 
                                 //Request has now been executed
-                                state.log.set_status(ballot, LogEntryState::Executed);
+                                state.log.set_status(ballot.1, LogEntryState::Executed);
 
                                 //Provide a response to the client -
                                 log::info!("{}: sending response to client: {}", idx, request.1);
@@ -1168,23 +1209,17 @@ impl Actor for NolerActor {
                         log::info!("{}: entry not in the log", idx);
                         //return;
                     }
-                }
-
-                else {
-                    log::info!("{}: stale request", idx);
-                    //return;
-                }
-
             }
+
 
             Internal (Commit {id, ballot, request}) if state.status == NORMAL && state.role != Role::Leader => {
                 let state = state.to_mut();
 
-                if ballot.0 == state.ballot.0 && ballot.1 > state.ballot.1 {
+                if ballot > state.ballot {
                     log::info!("{}: received Commit from {}", idx, id);
                     //Find the entry in the log
 
-                    let entry = state.log.find(ballot);
+                    let entry = state.log.find(ballot.1);
 
                     if entry.is_some() {
                         //Check the status of the entry 
@@ -1192,7 +1227,7 @@ impl Actor for NolerActor {
                         if entry.unwrap().state == LogEntryState::Proposed {
                             //Update the log entry to committed
 
-                            state.log.set_status(ballot, LogEntryState::Committed);
+                            state.log.set_status(ballot.1, LogEntryState::Committed);
 
                             //Update current ballot & commit index
                             state.ballot = ballot;
@@ -1206,10 +1241,10 @@ impl Actor for NolerActor {
                                         let result = state.data.get(request.0, request.2);
 
                                         //Set the log with the result of the kvstore execution
-                                        state.log.set_reply(ballot, result.clone());
+                                        state.log.set_reply(ballot.1, result.clone());
 
                                         //Request has now been executed
-                                        state.log.set_status(ballot, LogEntryState::Executed);
+                                        state.log.set_status(ballot.1, LogEntryState::Executed);
                                         state.execution_index = ballot.1;
                                     }
 
@@ -1218,10 +1253,10 @@ impl Actor for NolerActor {
                                         let result = state.data.set(request.0, request.2, request.3.unwrap());
 
                                         //Set the log with the result of the kvstore execution
-                                        state.log.set_reply(ballot, result.clone());
+                                        state.log.set_reply(ballot.1, result.clone());
 
                                         //Request has now been executed
-                                        state.log.set_status(ballot, LogEntryState::Executed);
+                                        state.log.set_status(ballot.1, LogEntryState::Executed);
                                         state.execution_index = ballot.1;
                                     }
                                 }
@@ -1253,7 +1288,19 @@ impl Actor for NolerActor {
 
                     else {
                         log::info!("{}: entry not in the log", idx);
-                        return;
+
+                        //change status to configuration
+                        state.status = RECOVERY;
+
+                        //Request for state
+                        o.send(
+                            id,
+                            Internal(RequestState {
+                                id: idx,
+                                ballot: state.ballot,
+                                commit_index: state.commit_index,
+                            }),
+                        );
                     }
                 }
 
@@ -1262,6 +1309,102 @@ impl Actor for NolerActor {
                     return;
                 }
             }
+
+            Internal (RequestState {id, ballot, commit_index}) if state.status == RECOVERY && state.role == Role::Leader => {
+                let state = state.to_mut();
+
+                if state.ballot > ballot {
+                    let log = state.log.get_entries(commit_index, state.commit_index);
+
+                    o.send(
+                        id,
+                        Internal(LogState {
+                            id: idx,
+                            ballot: state.ballot,
+                            commit_index: state.commit_index,
+                            log,
+                        }),
+                    );
+                }
+            }
+
+            Internal (LogState {id, ballot, commit_index, log}) if state.status == RECOVERY && state.role != Role::Leader => {
+                let state = state.to_mut();
+
+                if state.ballot < ballot && state.commit_index < commit_index {
+                    //Get the first log entry
+                    let first = log.first().unwrap();
+
+                    let last_commit = state.log.find(state.commit_index).unwrap();
+
+                    if last_commit.ballot.1 != first.ballot.1 {
+                        log::info!("{}: log state not consistent", idx);
+                        return;
+                    }
+
+                    for entry in log {
+                        //Check if the entry is already in the log - this will skip the first 
+                        let log_entry = state.log.find(entry.ballot.1);
+
+                        if log_entry.is_some() {
+                            continue;
+                        }
+
+                        else {
+                            //Update the commit index and last op
+                            state.commit_index = entry.ballot.1;
+                            state.last_op = entry.ballot.1;
+
+                            //Add the entry to the log
+                            state.log.append(entry.ballot, entry.request, None, LogEntryState::Committed);
+
+                            //Match the role
+                            match state.role {
+                                Role::Candidate => {
+                                    //Check the type of request
+                                    if entry.request.3.is_none() {
+                                        //GET request - execute on the kvstore
+                                        let result = state.data.get(entry.request.0, entry.request.2);
+
+                                        //Set the log with the result of the kvstore execution
+                                        state.log.set_reply(entry.ballot.1, result.clone());
+
+                                        //Request has now been executed
+                                        state.log.set_status(entry.ballot.1, LogEntryState::Executed);
+                                        state.execution_index = entry.ballot.1;
+                                    }
+
+                                    else {
+                                        //PUT request - execute on the kvstore
+                                        let result = state.data.set(entry.request.0, entry.request.2, entry.request.3.unwrap());
+
+                                        //Set the log with the result of the kvstore execution
+                                        state.log.set_reply(entry.ballot.1, result.clone());
+
+                                        //Request has now been executed
+                                        state.log.set_status(entry.ballot.1, LogEntryState::Executed);
+                                        state.execution_index = entry.ballot.1;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    //Confirm it is updated
+                    if state.commit_index == commit_index {
+                        //Change state to normal
+                        state.status = NORMAL;
+
+                    }
+                }
+
+                else {
+                    log::info!("{}: stale request", idx);
+                    return;
+                }
+            }
+
 
             // Internal (CommitOk { id, ballot, request }) if state.status == NORMAL => {
             //     let state = state.to_mut();
@@ -1459,7 +1602,17 @@ impl NolerModelCfg {
         //     }
         //     false
         // })
-        .property(Expectation::Sometimes, "value chosen", |_, state| {
+        // .property(Expectation::Sometimes, "value is set", | _, state| {
+        //     for env in state.network.iter_deliverable() {
+        //         if let KvStoreMsg::SetOk(_req_id, key) = env.msg {
+        //             if *key != 0 {
+        //                 return true;
+        //             }
+        //         }
+        //     }
+        //     false
+        // })
+        .property(Expectation::Sometimes, "value is retrieved", |_, state| {
             for env in state.network.iter_deliverable() {
                 if let KvStoreMsg::GetOk(_req_id, key, value) = env.msg {
                     if *value != 0 && *key != 0 { 

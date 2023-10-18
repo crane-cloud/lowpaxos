@@ -15,6 +15,8 @@ pub const HEARTBEAT_TIMEOUT:u64 = 8;
 
 pub const POLL_LEADER_TIMER:u64 = 3;
 
+pub const POLL_MONITOR_TIMEOUT:u64 = 5;
+
 // leader_lease_timeout < heartbeat_timeout  
 // poll_leader_timer < poll_leader_timeout
 // poll_leader_timeout < leader_lease_timeout

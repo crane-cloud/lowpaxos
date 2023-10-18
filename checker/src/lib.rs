@@ -16,6 +16,8 @@ pub mod noler_msg_checker {
     use noler::role::Role;
     use noler::config::ConfigSr;
 
+    use crate::logsr::LogEntrySR;
+
     type Ballot = (u32, u64);
     type RequestId = u64;
     type Key = u64;
@@ -122,6 +124,18 @@ pub mod noler_msg_checker {
             id: Id,
             ballot: Ballot,
             request: Request,
+        },
+        RequestState {
+            id: Id,
+            ballot: Ballot,
+            commit_index: u64,
+        },
+
+        LogState {
+            id: Id,
+            ballot: Ballot,
+            commit_index: u64,
+            log: Vec<LogEntrySR>,
         },
 
         //SR related messages

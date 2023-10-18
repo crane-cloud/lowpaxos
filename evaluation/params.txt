@@ -26,6 +26,7 @@ tc qdisc add dev enp65s0f0 parent 1:1 handle 10: netem delay 20ms loss 0.5%
 !
 
 
+
 [lowpaxos-02]
 
 #!/bin/bash

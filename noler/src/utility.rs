@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 use crate::config::{Config, Replica};
 use crate::message::MessageWrapper;
+use crate::monitor::{Profile, ProfileMatrix};
 
 pub fn parse_configuration(config_file: &str) -> Config {
     let file = File::open(config_file).expect("Failed to open config file");
@@ -56,6 +57,37 @@ pub fn parse_configuration(config_file: &str) -> Config {
     }
     
     Config::new((0,0), n, f as usize, replicas)
+}
+
+pub fn parse_profile_file(size:usize, profile_file: &str) -> ProfileMatrix {
+    let file = File::open(profile_file).expect("Failed to open profile file");
+    let reader = BufReader::new(file);
+
+    let mut matrix = ProfileMatrix::new(size);
+
+    for (id, line) in reader.lines().enumerate() {
+        if let Ok(line) = line {
+            let tokens: Vec<_> = line.split(",").map(|s| s.trim()).collect();
+            if tokens.is_empty() || tokens[0] == "#" {
+                continue; // Skip comments and empty lines
+            }
+            let mut col_idx = 0;
+
+            for token in &tokens {
+
+                if let Ok(value) = token.parse() {
+
+                    let _ = matrix.set(id, col_idx, Profile { x: value });
+                } else {
+                    eprintln!("Failed to parse profile value: {}", token);
+                }
+
+                col_idx += 1; 
+            }
+        }
+    }
+    
+    matrix
 }
 
 pub fn wrap_and_serialize(meta: &str, data: String) -> String {
