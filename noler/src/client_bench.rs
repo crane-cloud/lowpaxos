@@ -281,8 +281,8 @@ impl NolerClient {
 
 fn run_noler_client(id: u32, config: Config, transport: SocketAddr, requests: u32, conflicts: u32, writes: u32, rounds: u32, log: String) {
 
-    let read_timeout = Some(Duration::from_millis(150));
-    let write_timeout = Some(Duration::from_millis(150));
+    let read_timeout = Some(Duration::from_millis(250)); // Varies depending on the profiles - compute [highest round trip time]
+    let write_timeout = Some(Duration::from_millis(250)); // Varies depending on the profiles - compute [highest round trip time]
 
     //Create the file name based on the client id
     let log = format!("{}_{}", log, id);
@@ -345,7 +345,7 @@ fn create_transport(id: u32) -> SocketAddr {
             if let IpAddr::V4(ipv4_addr) = ip {
                 let ip4addr: Ipv4Addr = *ipv4_addr;
 
-                if ip4addr.octets()[0] == 10 && ip4addr.octets()[1] == 10 {
+                if ip4addr.octets()[0] == 196 && ip4addr.octets()[1] == 32 {
                     let ip = IpAddr::V4(ip4addr);
                     return SocketAddr::new(ip, 3000 + id as u16);
                 }

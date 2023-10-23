@@ -44,7 +44,7 @@ fn main() {
     let config_file = matches.value_of("config").unwrap();
     let profile_file = matches.value_of("profiles").unwrap();
     
-    let _id = matches.value_of("id").unwrap().parse::<u32>().unwrap();
+    let id = matches.value_of("id").unwrap().parse::<u32>().unwrap();
     let monitor_address = matches.value_of("monitor").unwrap().parse::<SocketAddr>().unwrap();
 
     let config = parse_configuration(config_file);
@@ -53,36 +53,37 @@ fn main() {
     /////////////////////////////CloudLab version/////////////////////////////
 
     //Get address of the replica from the config file using the id
-    // let replica_address = config.replicas.iter().find(|replica| replica.id == id).unwrap().replica_address.clone();
-    // let transport = Transport::new(replica_address);
+    let replica_address = config.replicas.iter().find(|replica| replica.id == id).unwrap().replica_address.clone();
+    let transport = Transport::new(replica_address);
 
-    // let profiles = matrix.get_row((id - 1) as usize).unwrap().clone();
+    let profiles = matrix.get_row((id - 1) as usize).unwrap().clone();
 
-    // let mut noler_replica = NolerReplica::new(id, replica_address, config.clone(), profiles.clone(), transport);
+    //let mut noler_replica = NolerReplica::new(id, replica_address, config.clone(), profiles.clone(), transport);
+    let mut noler_replica = NolerReplica::new(id, replica_address, config.clone(), profiles, monitor_address, transport);
 
-    // noler_replica.start_noler_replica();
+    noler_replica.start_noler_replica();
 
 
     /////////////////////////////Threaded version/////////////////////////////
-    let mut handles_replica = vec![];
+    // let mut handles_replica = vec![];
 
-    for replica in config.replicas.iter() {
+    // for replica in config.replicas.iter() {
 
-        let transport = Transport::new(replica.replica_address);
+    //     let transport = Transport::new(replica.replica_address);
 
-        //Get th profiles for this replica
-        let profiles = matrix.get_row((replica.id - 1) as usize).unwrap().clone();
+    //     //Get th profiles for this replica
+    //     let profiles = matrix.get_row((replica.id - 1) as usize).unwrap().clone();
 
 
-        let mut noler_replica = NolerReplica::new(replica.id, replica.replica_address, config.clone(), profiles, monitor_address,  transport);
-        let handle_replica = thread::spawn(move || {
-            noler_replica.start_noler_replica();
-        });
-        handles_replica.push(handle_replica);
+    //     let mut noler_replica = NolerReplica::new(replica.id, replica.replica_address, config.clone(), profiles, monitor_address,  transport);
+    //     let handle_replica = thread::spawn(move || {
+    //         noler_replica.start_noler_replica();
+    //     });
+    //     handles_replica.push(handle_replica);
 
-    }
+    // }
 
-    handles_replica.into_iter().for_each(|handle| {
-        handle.join().unwrap();
-    });
+    // handles_replica.into_iter().for_each(|handle| {
+    //     handle.join().unwrap();
+    // });
 }

@@ -1,5 +1,5 @@
 ---
-- hosts: peer_cloudlab, client_cloudlab
+- hosts: peer_cloudlab
   remote_user: amwotil
   become: false
 

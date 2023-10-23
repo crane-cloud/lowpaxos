@@ -1,0 +1,9 @@
+[Unit]
+Description=Network Traffic Control Setup
+
+[Service]
+Type=oneshot
+ExecStart=/etc/network_tc_setup.sh
+
+[Install]
+WantedBy=multi-user.target

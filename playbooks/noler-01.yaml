@@ -61,7 +61,7 @@
 
   - name: copy the noler profiles file
     copy: 
-      src: /proj/rip-PG0/lowpaxos/evaluation/profiles/profiles-00
+      src: /proj/rip-PG0/lowpaxos/evaluation/profiles/profiles-01
       dest: /etc/sysconfig/profiles.txt
       mode: 0644
     become: true
@@ -110,9 +110,9 @@
   become: false
 
   tasks:
-  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
     copy: 
-      src: /proj/rip-PG0/lowpaxos/evaluation/properties/00/network_tc_setup-01.sh
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-01.sh
       dest: /etc/network_tc_setup.sh
       mode: 0755
     become: true
@@ -122,9 +122,9 @@
   become: false
 
   tasks:
-  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
     copy: 
-      src: /proj/rip-PG0/lowpaxos/evaluation/properties/00/network_tc_setup-02.sh
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-02.sh
       dest: /etc/network_tc_setup.sh
       mode: 0755
     become: true
@@ -134,9 +134,9 @@
   become: false
 
   tasks:
-  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
     copy: 
-      src: /proj/rip-PG0/lowpaxos/evaluation/properties/00/network_tc_setup-03.sh
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-03.sh
       dest: /etc/network_tc_setup.sh
       mode: 0755
     become: true
@@ -146,9 +146,9 @@
   become: false
 
   tasks:
-  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
     copy: 
-      src: /proj/rip-PG0/lowpaxos/evaluation/properties/00/network_tc_setup-04.sh
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-04.sh
       dest: /etc/network_tc_setup.sh
       mode: 0755
     become: true
@@ -158,9 +158,9 @@
   become: false
 
   tasks:
-  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
     copy: 
-      src: /proj/rip-PG0/lowpaxos/evaluation/properties/00/network_tc_setup-05.sh
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-05.sh
       dest: /etc/network_tc_setup.sh
       mode: 0755
     become: true
@@ -170,7 +170,7 @@
   become: false
 
   tasks:
-  - name: copy the network startup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
+  - name: copy the network startup file # in /proj/rip-PG0/lowpaxos/evaluation/properties
     copy: 
       src: /proj/rip-PG0/lowpaxos/evaluation/properties/network_tc_setup.service
       dest: /etc/systemd/system/network_tc_setup.service
@@ -185,8 +185,8 @@
 
   - name: stop the noler service
     shell: pkill -f noler
-    ignore_errors: yes
     become: true
+    ignore_errors: yes
 
   - name: Install noler #create a symlink to the noler binary
     file:

@@ -1,0 +1,28 @@
+---
+- hosts: peer_cloudlab
+  remote_user: amwotil
+  become: false
+
+  tasks:
+    - name: Install noler #create a symlink to the noler binary
+      file:
+        src: /proj/rip-PG0/lowpaxos/target/debug/noler
+        dest: /usr/local/bin/noler
+        state: link
+        force: yes
+      become: true
+
+    - name: set the id of the peer
+      set_fact:
+        id: "{{ ansible_enp65s0f0.ipv4.address.split('.')[3] }}"
+
+    - name: Start noler peer with id
+      command: noler -i {{ id }} -c /proj/rip-PG0/lowpaxos/evaluation/config-cloudlab.txt -p /proj/rip-PG0/lowpaxos/evaluation/profiles/profiles-00 -m 10.10.1.6:30000
+      async: 0
+      poll: 0
+      ignore_errors: true
+      register: noler_output
+
+    - name: Display Noler Output
+      debug:
+        msg: "{{ noler_output.stdout_lines }}"

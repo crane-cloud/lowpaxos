@@ -5,7 +5,7 @@ import numpy as np
 
 latencies = []
 
-with open('log.out') as log:
+with open('log.out_0') as log:
     line = log.readline()
     while line != '':  # The EOF char is an empty string
         # Extract the latency and its unit of time.

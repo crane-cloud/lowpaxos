@@ -934,25 +934,25 @@ impl NolerReplica {
                             //Change status to recovery
                             self.state = RECOVERY;
 
-                            //Send the RequestStateMessage to the leader
-                            let request_state_message = RequestStateMessage {
-                                ballot: self.ballot,
-                                commit_index: self.commit_index,
-                            };
+                            // //Send the RequestStateMessage to the leader
+                            // let request_state_message = RequestStateMessage {
+                            //     ballot: self.ballot,
+                            //     commit_index: self.commit_index,
+                            // };
 
-                            //Serialize the RequestStateMessage with meta type set
-                            let serialized_rsm = wrap_and_serialize(
-                                "RequestStateMessage", 
-                                serde_json::to_string(&request_state_message).unwrap()
-                            );
+                            // //Serialize the RequestStateMessage with meta type set
+                            // let serialized_rsm = wrap_and_serialize(
+                            //     "RequestStateMessage", 
+                            //     serde_json::to_string(&request_state_message).unwrap()
+                            // );
 
-                            //Send the RequestStateMessage to the leader
-                            println!("{}: sending a RequestStateMessage to Replica {} with ballot {:?}", self.id, message.leader_id, self.ballot);
+                            // //Send the RequestStateMessage to the leader
+                            // println!("{}: sending a RequestStateMessage to Replica {} with ballot {:?}", self.id, message.leader_id, self.ballot);
 
-                            let _ = self.transport.send(
-                                &src,
-                                &mut serialized_rsm.as_bytes(),
-                            );
+                            // let _ = self.transport.send(
+                            //     &src,
+                            //     &mut serialized_rsm.as_bytes(),
+                            // );
 
                             //Start the poll leader and heartbeat timeouts
                             let _ = self.poll_leader_timeout.reset();
@@ -1000,6 +1000,7 @@ impl NolerReplica {
                     }
 
                     Role::Leader => {
+                        //self.ballot = self.config.ballot;
                         //Stop the leader-related timers
                         self.leader_lease_timeout.stop();
                 
@@ -1032,7 +1033,7 @@ impl NolerReplica {
                     }
 
                     _ => {
-                        //Update the role to the replica role
+                        //Update the role to the replica role - we need to request state | member
                         println!("{}: changing the role to {:?}", self.id, replica.role);
                         self.role = replica.role;
 
@@ -1044,6 +1045,27 @@ impl NolerReplica {
                     
                                 //Start the heartbeat timeout
                                 let _ = self.heartbeat_timeout.reset();
+
+                                // //request for the state
+                                // let request_state_message = RequestStateMessage {
+                                //     ballot: self.ballot,
+                                //     commit_index: self.commit_index,
+                                // };
+
+                                // //Serialize the RequestStateMessage with meta type set
+                                // let serialized_rsm = wrap_and_serialize(
+                                //     "RequestStateMessage", 
+                                //     serde_json::to_string(&request_state_message).unwrap()
+                                // );
+
+                                // //Send the RequestStateMessage to the leader
+                                // println!("{}: sending a RequestStateMessage to Replica {} with ballot {:?}", self.id, message.leader_id, self.ballot);
+
+                                // let _ = self.transport.send(
+                                //     &src,
+                                //     &mut serialized_rsm.as_bytes(),
+                                // );
+                            
                             }
 
                             Role::Candidate => {
@@ -1054,6 +1076,26 @@ impl NolerReplica {
                                 let _ = self.poll_leader_timeout.reset();
                                 let _ = self.heartbeat_timeout.reset();
                                 let _ = self.poll_leader_timer.reset();
+
+                                // //request for the state
+                                // let request_state_message = RequestStateMessage {
+                                //     ballot: self.ballot,
+                                //     commit_index: self.commit_index,
+                                // };
+
+                                // //Serialize the RequestStateMessage with meta type set
+                                // let serialized_rsm = wrap_and_serialize(
+                                //     "RequestStateMessage", 
+                                //     serde_json::to_string(&request_state_message).unwrap()
+                                // );
+
+                                // //Send the RequestStateMessage to the leader
+                                // println!("{}: sending a RequestStateMessage to Replica {} with ballot {:?}", self.id, message.leader_id, self.ballot);
+
+                                // let _ = self.transport.send(
+                                //     &src,
+                                //     &mut serialized_rsm.as_bytes(),
+                                // );
                             }
                             _ => {
                                 panic!("{}: only witness and candidate can be updated", self.id);
@@ -1107,7 +1149,7 @@ impl NolerReplica {
 
         //assert!(self.ballot == message.ballot, "Only a replica with the same ballot can handle a HeartBeatMessage");
         //assert!(self.role != Role::Leader, "Only a non-leader can handle a HeartBeatMessage"); //ToDo
-        assert!(self.leader.unwrap().0 == message.leader_id, "Only accepting replica with my leader info");
+        //assert!(self.leader.unwrap().0 == message.leader_id, "Only accepting replica with my leader info");
 
         //Ignore if the heartbeat is from itself
         if self.id == message.leader_id {
@@ -1167,6 +1209,36 @@ impl NolerReplica {
                 );
 
             }
+        }
+
+        else if self.ballot < message.ballot {
+            //Request for the leader configuration - as the role is a member / Unreachable
+
+            let request_config_message = RequestConfigMessage {
+                replica_id: self.id,
+                replica_address: self.replica_address,
+                ballot: self.ballot,
+            };
+
+            //Serialize the RequestConfigMessage with meta type set
+            let serialized_rcm = wrap_and_serialize(
+                "RequestConfigMessage", 
+                serde_json::to_string(&request_config_message).unwrap()
+            );
+
+            //Send the RequestConfigMessage to the leader
+            println!("{}: sending a RequestConfigMessage to Replica {} with ballot {:?}", self.id, message.leader_id, self.ballot);
+
+            let _ = self.transport.send(
+                &message.leader_address,
+                &mut serialized_rcm.as_bytes(),
+            );
+        }
+
+        else {
+            //Ignore the message
+            println!("{}: received a HeartBeatMessage with a stale ballot", self.id);
+            return;
         }
     }
 
