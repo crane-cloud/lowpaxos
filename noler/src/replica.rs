@@ -5,7 +5,7 @@ use clap::Arg;
 use noler::transport::Transport;
 use noler::node::NolerReplica;
 use noler::utility::{parse_configuration, parse_profile_file};
-use noler::monitor::{Profile, ProfileMatrix};
+// use noler::monitor::{Profile, ProfileMatrix};
 
 fn main() {
 
@@ -50,7 +50,7 @@ fn main() {
     let config = parse_configuration(config_file);
     let matrix = parse_profile_file(config.replicas.len(), profile_file);
 
-    /////////////////////////////CloudLab version/////////////////////////////
+    // /////////////////////////////CloudLab version & Africa/////////////////////////////
 
     //Get address of the replica from the config file using the id
     let replica_address = config.replicas.iter().find(|replica| replica.id == id).unwrap().replica_address.clone();

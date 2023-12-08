@@ -39,7 +39,7 @@ impl RequestInfo {
 
 #[derive(Debug)]
 pub struct NolerClient {
-    id: u32,
+    _id: u32,
     writer: TransportClient,
     reader: Arc<TransportClient>,
     config: Config,
@@ -51,11 +51,11 @@ pub struct NolerClient {
 }
 
 impl NolerClient {
-    fn new(id: u32, writer: TransportClient, reader: TransportClient, config: Config) -> NolerClient {
+    fn new(_id: u32, writer: TransportClient, reader: TransportClient, config: Config) -> NolerClient {
         //let (tx, rx) = mpsc::unbounded_channel();
 
         NolerClient {
-            id,
+            _id,
             writer,
             reader: Arc::new(reader),
             config: config,

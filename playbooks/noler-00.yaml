@@ -5,7 +5,7 @@
 
   tasks:
   - name: Check if the qdisc already exists and delete it if it does
-    command: tc qdisc del dev enp65s0f0 root
+    command: tc qdisc del dev eno1d1 root
     ignore_errors: yes
     register: tc_del_result
 
@@ -31,7 +31,7 @@
 
   - name: install noler-bench #create a symlink to the noler-bench binary
     file:
-      src: /proj/rip-PG0/lowpaxos/target/debug/noler-bench
+      src: /proj/rip-PG0/lowpaxos/target/release/noler-bench
       dest: /usr/local/bin/noler-bench
       state: link
       force: yes
@@ -39,7 +39,7 @@
 
   - name: install noler-monitor #create a symlink to the noler-monitor binary
     file:
-      src: /proj/rip-PG0/lowpaxos/target/debug/noler-monitor
+      src: /proj/rip-PG0/lowpaxos/target/release/noler-monitor
       dest: /usr/local/bin/noler-monitor
       state: link
       force: yes
@@ -190,7 +190,7 @@
 
   - name: Install noler #create a symlink to the noler binary
     file:
-      src: /proj/rip-PG0/lowpaxos/target/debug/noler
+      src: /proj/rip-PG0/lowpaxos/target/release/noler
       dest: /usr/local/bin/noler
       state: link
       force: yes
@@ -198,7 +198,7 @@
 
   - name: set the id of the peer
     set_fact:
-      id: "{{ ansible_enp65s0f0.ipv4.address.split('.')[3] }}"
+      id: "{{ ansible_eno1d1.ipv4.address.split('.')[3] }}"
 
   - name: Start noler peer with id {{ id }}
     command: noler -i {{ id }} -c /proj/rip-PG0/lowpaxos/evaluation/config-cloudlab.txt -p /proj/rip-PG0/lowpaxos/evaluation/profiles/profiles-00 -m 10.10.1.6:30000

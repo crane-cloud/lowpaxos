@@ -40,7 +40,6 @@ pub struct NolerReplica {
     leadership_quorum: QuorumSet<(u32, u64), ResponseVoteMessage>,
     propose_quorum: QuorumSet<(u32, u64), ProposeOkMessage>,
     _propose_read_quorum: QuorumSet<(u32, u64), ProposeReadOkMessage>,
-    //pub monitor: ProfileMatrix,
     pub monitor: Vec<Profile>,
     monitor_address: SocketAddr,
     log: Log,
@@ -641,7 +640,7 @@ impl NolerReplica {
                                 // Leader profile is still better than source profile
                                 println!("{}: leader profile still good - affirming leadership", self.id);
 
-                                self.affirm_leadership(message.ballot);
+                                self.affirm_leadership(self.ballot);
                                 
                                 return;
                             }
@@ -699,7 +698,7 @@ impl NolerReplica {
                             println!("{}: received offline election - affirming leadership", self.id);
 
 
-                            self.affirm_leadership(message.ballot);
+                            self.affirm_leadership(self.ballot);
                         }
 
                         Role::Candidate => {
@@ -2746,7 +2745,7 @@ impl NolerReplica {
                             },
 
                             _ => {
-                                println!("{}: received message of unknown Tx channel type!", self.id);
+                                println!("{}: received message {:?} of unknown Tx channel type!", msg.message, self.id);
                             }
                         }
                     },

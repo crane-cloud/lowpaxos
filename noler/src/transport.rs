@@ -80,6 +80,7 @@ pub struct TransportTimed {
 
 impl TransportTimed {
     pub fn new(bind_address: SocketAddr, read_timeout: Option<Duration>, write_timeout: Option<Duration>) -> TransportTimed {
+        println!("TransportTimed with read_timeout: {:?}ms and write_timeout: {:?}ms", read_timeout, write_timeout);
         let socket = UdpSocket::bind(bind_address).unwrap();
 
         TransportTimed {

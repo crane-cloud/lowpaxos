@@ -13,7 +13,7 @@ use rand::Rng;
 use rand::prelude::*;
 use rand_distr::Zipf;
 use std::time::{SystemTime, UNIX_EPOCH};
-// use std::fs::OpenOptions;
+use std::fs::OpenOptions;
 use std::fs::File;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -39,7 +39,7 @@ impl RequestInfo {
 
 #[derive(Debug)]
 pub struct NolerClient {
-    _id: u32,
+    id: u32,
     transport: Arc<TransportTimed>,
     config: Config,
     leader: Arc<Mutex<Option<SocketAddr>>>,
@@ -48,10 +48,10 @@ pub struct NolerClient {
 }
 
 impl NolerClient {
-    fn new(_id: u32, transport: TransportTimed, config: Config, log: File) -> NolerClient {
+    fn new(id: u32, transport: TransportTimed, config: Config, log: File) -> NolerClient {
 
         NolerClient {
-            _id,
+            id,
             transport: Arc::new(transport),
             config: config,
             leader: Arc::new(Mutex::new(None)),
@@ -158,38 +158,28 @@ impl NolerClient {
                 send_operation = self.send_request(&prepared_operation.as_bytes());
             }
 
-            let mut process_result = self.process_result(request_id);
-            //While the operation result is false, keep processing results
-            while !process_result {
-                process_result = self.process_result(request_id);
-            }
+            //Process the response
+            let result = self.process_response();
 
-        }
-    }
+            match result {
+                Ok(result) => {
+                    if result != request_id {
+                        //eprintln!("Client: Error: Request id {} was unsuccessful", request_id);
+                        //Resend the request?
+                        //self.send_request(&serialized_request.as_bytes());
+                    }
 
-    fn process_result(&mut self, request_id: u64) -> bool {
-        let result = self.process_response();
-
-        match result {
-            Ok(result) => {
-                if result != request_id {
-                    //eprintln!("Client: Error: Request id {} was unsuccessful", request_id);
-                    //Resend the request?
-                    //self.send_request(&serialized_request.as_bytes());
-                    return false;
+                    else {
+                        continue;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Client: Receive Error: {}", e);
+                    continue;
                 }
-
-                else {
-                    return true;
-                }
-            },
-            Err(e) => {
-                eprintln!("Client: Receive Error: {}", e);
-                return false;
+                
             }
-            
         }
-
     }
 
 
@@ -263,8 +253,7 @@ impl NolerClient {
 
                                 }
                                 else {
-                                    //ignore as the response has already been received/logged
-                                    //eprintln!("Client: Error: Request id {} already has a response {:?}", request_id, request_info);
+                                    eprintln!("Client: Error: Request id {} already has a response {:?}", request_id, request_info);
                                 }
                             }
 
@@ -359,11 +348,6 @@ fn create_transport(id: u32) -> SocketAddr {
                 if ip4addr.octets()[0] == 196 && ip4addr.octets()[1] == 32 {
                     let ip = IpAddr::V4(ip4addr);
                     return SocketAddr::new(ip, 3000 + id as u16);
-                }
-
-                else if ip4addr.octets()[0] == 10 && ip4addr.octets()[1] == 10 {
-                    let ip = IpAddr::V4(ip4addr);
-                    return SocketAddr::new(ip, 32000 + id as u16);
                 }
             }
         }
