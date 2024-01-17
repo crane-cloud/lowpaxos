@@ -136,3 +136,34 @@ replica 10.10.1.2:32002
 replica 10.10.1.3:32003
 replica 10.10.1.4:32004
 replica 10.10.1.5:32005
+
+
+
+
+
+
+######################################
+find ../playbooks/ -type f -name "*.yaml" -exec sed -i 's/eno1d1/enp65s0f0/g' {} +
++++++++++++++++++++++++++++++++++++++
+
+
+Client
+/proj/rip-PG0/lowpaxos/playbooks$ ansible-playbook -i inventory.yaml noler.yaml
+
+/proj/rip-PG0/lowpaxos/playbooks$ sh run_playbooks_noler.sh 
+
+/proj/rip-PG0/lowpaxos/evaluation$ noler-bench -c config-cloudlab.txt -k 50 -w 100 -r 1 -f log.out -n 100000 -t 1 > run.txt
+
+
+
+
+scp amwotil@amd161.utah.cloudlab.us:/proj/rip-PG0/lowpaxos/evaluation/run.txt lp-run-15k.txt
+scp amwotil@amd161.utah.cloudlab.us:/proj/rip-PG0/lowpaxos/evaluation/log.out_0 lp-log-15k.txt
+
+python3 lp-mp-ep.py lp-log-15k.txt lp-run-15k.txt mp-log-15k.txt mp-run-15k.txt ep-log-15k.txt ep-run-15k.txt
+
+
+Replicas
+
+cd /proj/rip-PG0/lowpaxos/evaluation
+noler --config config-cloudlab.txt --id [1] --profiles profiles/profiles-00 --monitor 10.10.1.6:3000

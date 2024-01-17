@@ -155,12 +155,15 @@ impl NolerClient {
 
             //While the send operation is unsuccessful, keep trying
             while !send_operation {
+                println!("The send operation for request {} was unsuccesful. Now retrying....", request_id);
                 send_operation = self.send_request(&prepared_operation.as_bytes());
             }
 
             let mut process_result = self.process_result(request_id);
             //While the operation result is false, keep processing results
             while !process_result {
+                println!("The operation result for request {} was unsuccesful. Now retrying....", request_id);
+                send_operation = self.send_request(&prepared_operation.as_bytes());
                 process_result = self.process_result(request_id);
             }
 

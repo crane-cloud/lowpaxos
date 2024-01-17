@@ -1,0 +1,125 @@
+---
+- hosts: peer_cloudlab
+  remote_user: amwotil
+  become: true
+
+  tasks:
+  - name: Check if the qdisc already exists and delete it if it does
+    command: tc qdisc del dev enp65s0f0 root
+    ignore_errors: yes
+    register: tc_del_result
+
+  - name: Display the result of the tc qdisc deletion
+    debug:
+      var: tc_del_result.stdout_lines
+
+
+# - hosts: client_cloudlab
+#   remote_user: amwotil
+#   become: false
+
+#   tasks:
+#   - name: copy the network configuration
+#     copy: 
+#       src: /proj/rip-PG0/lowpaxos/evaluation/properties/client/network_tc_setup.sh
+#       dest: /etc/network_tc_setup.sh
+#       mode: 0755
+#     become: true
+
+#   - name: copy the startup file
+#     copy: 
+#       src: /proj/rip-PG0/lowpaxos/evaluation/properties/network_tc_setup.service
+#       dest: /etc/systemd/system/network_tc_setup.service
+#       mode: 0644
+#     become: true
+
+#   - name: enable the network_tc_setup service
+#     systemd:
+#       name: network_tc_setup.service
+#       enabled: yes
+#     become: true
+
+#   - name: restart the network_tc_setup service
+#     systemd:
+#       name: network_tc_setup.service
+#       state: restarted
+#     become: true
+
+
+- hosts: 10.10.1.1
+  remote_user: amwotil
+  become: false
+
+  tasks:
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
+    copy: 
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-01.sh
+      dest: /etc/network_tc_setup.sh
+      mode: 0755
+    become: true
+
+- hosts: 10.10.1.2
+  remote_user: amwotil
+  become: false
+
+  tasks:
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
+    copy: 
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-02.sh
+      dest: /etc/network_tc_setup.sh
+      mode: 0755
+    become: true
+
+- hosts: 10.10.1.3
+  remote_user: amwotil
+  become: false
+
+  tasks:
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
+    copy: 
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-03.sh
+      dest: /etc/network_tc_setup.sh
+      mode: 0755
+    become: true
+
+- hosts: 10.10.1.4
+  remote_user: amwotil
+  become: false
+
+  tasks:
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
+    copy: 
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-04.sh
+      dest: /etc/network_tc_setup.sh
+      mode: 0755
+    become: true
+
+- hosts: 10.10.1.5
+  remote_user: amwotil
+  become: false
+
+  tasks:
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
+    copy: 
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-05.sh
+      dest: /etc/network_tc_setup.sh
+      mode: 0755
+    become: true
+
+- hosts: peer_cloudlab
+  remote_user: amwotil
+  become: false
+
+  tasks:
+  - name: copy the network startup file # in /proj/rip-PG0/lowpaxos/evaluation/properties
+    copy: 
+      src: /proj/rip-PG0/lowpaxos/evaluation/properties/network_tc_setup.service
+      dest: /etc/systemd/system/network_tc_setup.service
+      mode: 0644
+    become: true
+
+  - name: restart the network_tc_setup service
+    systemd:
+      name: network_tc_setup.service
+      state: restarted
+    become: true

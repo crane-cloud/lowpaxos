@@ -1,5 +1,5 @@
 ---
-- hosts: peer_cloudlab, client_cloudlab
+- hosts: peer_cloudlab
   remote_user: amwotil
   become: true
 
@@ -14,103 +14,12 @@
       var: tc_del_result.stdout_lines
 
 
-- hosts: client_cloudlab
-  remote_user: amwotil
-  become: false
-
-  tasks:
-  - name: stop the noler-bench client
-    shell: pkill -f noler-bench
-    become: true
-    ignore_errors: yes
-
-  - name: stop the noler monitor
-    shell: pkill -f noler-monitor
-    become: true
-    ignore_errors: yes
-
-  - name: install noler-bench #create a symlink to the noler-bench binary
-    file:
-      src: /proj/rip-PG0/lowpaxos/target/debug/noler-bench
-      dest: /usr/local/bin/noler-bench
-      state: link
-      force: yes
-    become: true
-
-  - name: install noler-monitor #create a symlink to the noler-monitor binary
-    file:
-      src: /proj/rip-PG0/lowpaxos/target/debug/noler-monitor
-      dest: /usr/local/bin/noler-monitor
-      state: link
-      force: yes
-    become: true
-
-  - name: create the noler-monitor systemd service
-    copy: 
-      src: /proj/rip-PG0/lowpaxos/evaluation/properties/noler-monitor.service
-      dest: /etc/systemd/system/noler-monitor.service
-      mode: 0644
-    become: true
-
-  - name: copy the noler config file
-    copy: 
-      src: /proj/rip-PG0/lowpaxos/evaluation/config-cloudlab.txt
-      dest: /etc/sysconfig/config.txt
-      mode: 0644
-    become: true
-
-  - name: copy the noler profiles file
-    copy: 
-      src: /proj/rip-PG0/lowpaxos/evaluation/profiles/profiles-01
-      dest: /etc/sysconfig/profiles.txt
-      mode: 0644
-    become: true
-
-  - name: enable the noler-monitor service
-    systemd:
-      name: noler-monitor.service
-      enabled: yes
-    become: true
-
-  - name: restart the noler-monitor service
-    systemd:
-      name: noler-monitor.service
-      state: restarted
-    become: true
-
-  - name: copy the network configuration
-    copy: 
-      src: /proj/rip-PG0/lowpaxos/evaluation/properties/client/network_tc_setup.sh
-      dest: /etc/network_tc_setup.sh
-      mode: 0755
-    become: true
-
-  - name: copy the startup file
-    copy: 
-      src: /proj/rip-PG0/lowpaxos/evaluation/properties/network_tc_setup.service
-      dest: /etc/systemd/system/network_tc_setup.service
-      mode: 0644
-    become: true
-
-  - name: enable the network_tc_setup service
-    systemd:
-      name: network_tc_setup.service
-      enabled: yes
-    become: true
-
-  - name: restart the network_tc_setup service
-    systemd:
-      name: network_tc_setup.service
-      state: restarted
-    become: true
-
-
 - hosts: 10.10.1.1
   remote_user: amwotil
   become: false
 
   tasks:
-  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
     copy: 
       src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-01.sh
       dest: /etc/network_tc_setup.sh
@@ -122,7 +31,7 @@
   become: false
 
   tasks:
-  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
     copy: 
       src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-02.sh
       dest: /etc/network_tc_setup.sh
@@ -134,7 +43,7 @@
   become: false
 
   tasks:
-  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
     copy: 
       src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-03.sh
       dest: /etc/network_tc_setup.sh
@@ -146,7 +55,7 @@
   become: false
 
   tasks:
-  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
     copy: 
       src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-04.sh
       dest: /etc/network_tc_setup.sh
@@ -158,7 +67,7 @@
   become: false
 
   tasks:
-  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/01
+  - name: copy the network setup file # in /proj/rip-PG0/lowpaxos/evaluation/properties/00
     copy: 
       src: /proj/rip-PG0/lowpaxos/evaluation/properties/01/network_tc_setup-05.sh
       dest: /etc/network_tc_setup.sh
@@ -170,12 +79,6 @@
   become: false
 
   tasks:
-  - name: copy the network startup file # in /proj/rip-PG0/lowpaxos/evaluation/properties
-    copy: 
-      src: /proj/rip-PG0/lowpaxos/evaluation/properties/network_tc_setup.service
-      dest: /etc/systemd/system/network_tc_setup.service
-      mode: 0644
-    become: true
 
   - name: restart the network_tc_setup service
     systemd:
@@ -183,30 +86,28 @@
       state: restarted
     become: true
 
-  - name: stop the noler service
-    shell: pkill -f noler
+
+
+- hosts: client_cloudlab
+  remote_user: amwotil
+  become: false
+
+  tasks:
+
+  # - name: stop the noler monitor
+  #   shell: pkill -f noler-monitor
+  #   become: true
+  #   ignore_errors: yes
+
+  - name: copy the noler profiles file
+    copy: 
+      src: /proj/rip-PG0/lowpaxos/evaluation/profiles/profiles-01
+      dest: /etc/sysconfig/profiles.txt
+      mode: 0644
     become: true
-    ignore_errors: yes
 
-  - name: Install noler #create a symlink to the noler binary
-    file:
-      src: /proj/rip-PG0/lowpaxos/target/debug/noler
-      dest: /usr/local/bin/noler
-      state: link
-      force: yes
+  - name: restart the noler-monitor service
+    systemd:
+      name: noler-monitor.service
+      state: restarted
     become: true
-
-  - name: set the id of the peer
-    set_fact:
-      id: "{{ ansible_enp65s0f0.ipv4.address.split('.')[3] }}"
-
-  - name: Start noler peer with id {{ id }}
-    command: noler -i {{ id }} -c /proj/rip-PG0/lowpaxos/evaluation/config-cloudlab.txt -p /proj/rip-PG0/lowpaxos/evaluation/profiles/profiles-00 -m 10.10.1.6:30000
-    async: 0
-    poll: 0
-    ignore_errors: true
-    register: noler_output
-
-  - name: Display Noler Output
-    debug:
-      msg: "{{ noler_output.stdout_lines }}"

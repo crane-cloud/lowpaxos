@@ -13,7 +13,7 @@ pub const LEADER_LEASE_TIMEOUT:u64 = 6;
 pub const POLL_LEADER_TIMEOUT:u64 = 10;
 pub const HEARTBEAT_TIMEOUT:u64 = 16;
 
-pub const POLL_LEADER_TIMER:u64 = 7;
+pub const POLL_LEADER_TIMER:u64 = 4;
 
 pub const POLL_MONITOR_TIMEOUT:u64 = 10;
 

@@ -4,7 +4,7 @@ EPaxosEnabled=false
 MASTER_SERVER_IP="10.10.1.1"
 
 NClient=1
-NReq=9000
+NReq=15000
 clientBatchSize=1
 rounds=$((NReq / clientBatchSize))
 
