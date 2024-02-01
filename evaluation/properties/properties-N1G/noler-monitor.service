@@ -1,0 +1,9 @@
+[Unit]
+Description=Noler Monitor Service
+
+[Service]
+ExecStart=/usr/local/bin/noler-monitor -c /etc/sysconfig/config.txt -p /etc/sysconfig/profiles.txt
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -53,6 +53,7 @@ pub struct NolerReplica {
 
     pub leader_init_timeout: Timeout,
     pub leader_vote_timeout: Timeout,
+    pub leader_profile_vote_timeout: Timeout,
     pub leadership_vote_timeout: Timeout,
     pub leader_lease_timeout: Timeout,
     pub poll_leader_timeout: Timeout,
@@ -76,6 +77,7 @@ impl NolerReplica {
 
         let tx_leader_init = tx.clone();
         let tx_leader_vote = tx.clone();
+        let tx_leader_profile_vote = tx.clone();
         let tx_leadership_vote = tx.clone();
         let tx_leader_lease = tx.clone();
         let tx_poll_leader = tx.clone();
@@ -103,6 +105,17 @@ impl NolerReplica {
             };
             if let Err(err) = tx_leader_vote.send(msg) {
                 eprintln!("Error sending Leader Vote Message message: {}", err);
+            }
+        }));
+
+        let leader_profile_vote_timeout = Timeout::new(LEADER_PROFILE_VOTE_TIMEOUT, Box::new(move || {
+            let msg = ChannelMessage {
+                channel: "Tx".to_string(),
+                src: replica_address,
+                message: "LeaderProfileVoteTimeout".to_string(),
+            };
+            if let Err(err) = tx_leader_profile_vote.send(msg) {
+                eprintln!("Error sending Leader ProfileVote Message message: {}", err);
             }
         }));
 
@@ -200,6 +213,7 @@ impl NolerReplica {
 
             leader_init_timeout,
             leader_vote_timeout,
+            leader_profile_vote_timeout,
             leadership_vote_timeout,
             leader_lease_timeout,
             poll_leader_timeout,
@@ -283,12 +297,12 @@ impl NolerReplica {
                     election_type: election_type,
                 };
 
-                println!("{}: sending a RequestVoteMessage to Replica {}:{} with profile {}",
-                    self.id, 
-                    replica.id, 
-                    replica.replica_address,
-                    request_vote_message.replica_profile
-                );
+                // println!("{}: sending a RequestVoteMessage to Replica {}:{} with profile {}",
+                //     self.id, 
+                //     replica.id, 
+                //     replica.replica_address,
+                //     request_vote_message.replica_profile
+                // );
 
                 //Serialize the RequestVoteMessage with meta type set
                 let serialized_rvm = wrap_and_serialize(
@@ -319,7 +333,7 @@ impl NolerReplica {
     // Function to determine if received ballot is fresh
     fn fresh_ballot (&mut self, ballot: (u32, u64)) -> bool {
         //if ballot.0 > self.ballot.0 && ballot.1 > self.ballot.1 {
-        if ballot.0 > self.ballot.0 {
+        if ballot.0 > self.ballot.0 && ballot.1 >= self.ballot.1 { // The term has to be different and the proposal must be >= local
             return true;
         }
         else {
@@ -328,15 +342,51 @@ impl NolerReplica {
     }
 
     //Function to determine if next ballot
-    fn next_ballot (&mut self, ballot: (u32, u64)) -> bool {
+    fn next_ballot (&mut self, ballot: (u32, u64)) -> bool { // Not relevant?
         //if ballot.0 == self.ballot.0 + 1 && ballot.1 == self.ballot.1 + 1 {
-        if ballot.0 == self.ballot.0 + 1 {
+        if ballot.0 == self.ballot.0 + 1 && ballot.1 == self.ballot.1 { // Just new term but same op
             return true;
         }
         else {
             return false;
         }
     }
+
+    //Function to determine if next proposal
+    fn next_proposal(&mut self, ballot: (u32, u64)) -> bool {
+        if ballot.0 >= self.ballot.0 && ballot.1 == self.ballot.1 + 1 {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+
+    //Function to determine if future ballot
+    fn future_ballot(&mut self, ballot: (u32, u64)) -> bool {
+        if ballot.0 > self.ballot.0 && ballot.1 > self.ballot.1 {
+            return true;
+        }
+
+        else {
+            return false;
+        }
+    }
+
+    //Function to determine if future ballot
+    fn stale_ballot(&mut self, ballot: (u32, u64)) -> bool {
+        if ballot.0 < self.ballot.0 && ballot.1 < self.ballot.1 {
+            return true;
+        }
+
+        else {
+            return false;
+        }
+    }
+
+
+    //Function to determine if stale ballot
+
 
     //Function to determine if voting is required or response should be provided immediately
     fn proceed_vote_else_response (&mut self, ballot: (u32, u64), message: RequestVoteMessage) {
@@ -436,7 +486,7 @@ impl NolerReplica {
         //return;
     }
 
-    fn handle_request_vote_message (&mut self, message: RequestVoteMessage) {
+    fn handle_request_vote_message (&mut self, src: SocketAddr, message: RequestVoteMessage) {
 
         println!("{}: received a RequestVoteMessage from Replica {} with my profile {}", self.id, message.replica_id, message.replica_profile);
 
@@ -627,7 +677,7 @@ impl NolerReplica {
                     return;
                 }
 
-                ElectionType::Profile => {
+                ElectionType::Profile => if !self.stale_ballot(message.ballot){
                     match self.role {
                         Role::Leader => {
                             if self.profile_vote_result(
@@ -646,42 +696,100 @@ impl NolerReplica {
                             }
 
                             else {
+
                                 // Leader profile has degraded - no need to lead anymore
                                 // Change role to candidate & status to election
                                 println!("{}: leader profile detected low - changing the role to Candidate", self.id);
 
-                                self.role = Role::Candidate;
+                                //self.role = Role::Candidate; //wait for the new role as provided by the leader
                                 self.state = ELECTION;
 
-                                //Update the voted tuple
-                                self.voted = Some((message.replica_id, message.ballot, message.election_type));                
+                                if message.ballot.0 > self.ballot.0 && message.ballot.1 >= self.ballot.1 {
+                                    //Update the voted tuple
+                                    self.voted = Some((message.replica_id, message.ballot, message.election_type));
 
-                                //Send the ResponseVoteMessage to the source
-                                self.provide_vote_response(message.ballot, message.replica_address);
+                                    //Send the ResponseVoteMessage to the source
+                                    self.provide_vote_response(message.ballot, message.replica_address);
 
-                                //Start the leadervotetimer
-                                let _ = self.leader_vote_timeout.start(); //Old leader can reclaim leadership at the end of this timeout
+                                    //Start the leadervotetimer
+                                    let _ = self.leader_profile_vote_timeout.start(); //Old leader can reclaim leadership at the end of this timeout
 
-                                return;
+                                    return;
+
+                                }
+
+                                else {
+                                    //Provide state to this replica so that it can ask to lead again with profile type of election
+                                    //Retrieve the log from message.commit_index to our current commit_index
+
+                                    println!("{}: retrieving log entries from {} to {} for {:?}", self.id, message.ballot.1, self.commit_index, src);
+                                    let log = self.log.get_entries(message.ballot.1, self.commit_index);
+
+                                    let len = log.len();
+
+                                    //Serialize the log
+                                    let log = serde_json::to_vec(&log).unwrap();
+
+                                    //Send the state to the replica
+                                    let state_message = LogStateMessage {
+                                        ballot: self.ballot,
+                                        commit_index: self.commit_index,
+                                        log: log,
+                                        profile: true,
+                                    };
+
+                                    //Serialize the LogStateMessage with meta type set
+                                    let serialized_sm = wrap_and_serialize(
+                                        "LogStateMessage", 
+                                        serde_json::to_string(&state_message).unwrap()
+                                    );
+
+                                    //Send the LogStateMessage to the replica
+                                    println!("{}: sending a LogStateMessage to Replica {} with ballot {:?} and length {}", self.id, src, message.ballot, len);
+                                    let _ = self.transport.send(
+                                        &src,
+                                        &mut serialized_sm.as_bytes(),
+                                    );
+                                }
+
+                                
                             }
                         }
 
                         Role::Candidate => {
-                            if self.next_ballot(message.ballot) || self.next_ballot(self.leader.unwrap().1) {
-                                //Process the request normally
-                                self.proceed_vote_else_response(message.ballot, message);
-                            }
-                            else {
+
+                            if self.future_ballot(message.ballot) {
                                 //Provide a response immediately
                                 self.voted = Some((message.replica_id, message.ballot, message.election_type));
                                 self.provide_vote_response(message.ballot, message.replica_address);
+
+                                return;
                             }
+
+                            if self.next_ballot(message.ballot) {
+                                //Process the request normally
+                                self.proceed_vote_else_response(message.ballot, message);
+
+                                return;
+                            }
+
                         }
 
                         Role::Witness => {
-                            //Vote immediately
-                            self.voted = Some((message.replica_id, message.ballot, message.election_type));
-                            self.provide_vote_response(message.ballot, message.replica_address);
+                            if self.future_ballot(message.ballot) {
+                                //Provide a response immediately
+                                self.voted = Some((message.replica_id, message.ballot, message.election_type));
+                                self.provide_vote_response(message.ballot, message.replica_address);
+
+                                return;
+                            }
+
+                            if self.next_ballot(message.ballot) {
+                                //Process the request normally
+                                self.proceed_vote_else_response(message.ballot, message);
+
+                                return;
+                            }
                         }
 
                         _ => {
@@ -891,12 +999,39 @@ impl NolerReplica {
 
     }
 
+    fn send_state_request(&mut self, leader_address: SocketAddr) {
+        //Change state to recovery
+        println!("{}: --> changing state to recovery", self.id);
+        self.state = RECOVERY;
+
+        // Create RequestStateMessage
+        let request_state_message = RequestStateMessage {
+            ballot: self.ballot,
+            commit_index: self.commit_index,
+        };
+    
+        // Serialize the RequestStateMessage
+        let serialized_rsm = wrap_and_serialize(
+            "RequestStateMessage",
+            serde_json::to_string(&request_state_message).expect("Failed to serialize RequestStateMessage"),
+        );
+    
+        // Print debug information
+        println!("{}: sending a RequestStateMessage to leader {:?} with my ballot {:?}", self.id, self.leader.unwrap().0, self.ballot);
+    
+        // Send the RequestStateMessage to the leader
+        if let Err(err) = self.transport.send(&leader_address, &mut serialized_rsm.as_bytes()) {
+            eprintln!("Failed to send RequestStateMessage to leader: {:?}", err);
+        }
+    }
+
     fn handle_config_message(&mut self, src: SocketAddr, message: ConfigMessage) {
-        println!("{}: received a ConfigMessage from new leader replica {} with ballot {:?}", self.id, message.leader_id, message.config.ballot);
+        println!("{}: received a ConfigMessage {:?} from new leader replica {} with ballot {:?}", self.id, message, message.leader_id, message.config.ballot);
 
         //Stop leader initialization timeouts
         self.leader_init_timeout.stop();
         self.leader_vote_timeout.stop();
+        self.leader_profile_vote_timeout.stop();
         self.leadership_vote_timeout.stop();
 
         if self.id == message.leader_id && self.role == Role::Leader {
@@ -904,7 +1039,7 @@ impl NolerReplica {
             return;
         }
 
-        if self.ballot.1 >= message.config.ballot.1 && self.role == Role::Leader {
+        if self.ballot.0 >= message.config.ballot.0 && self.ballot.1 >= message.config.ballot.1 && self.role == Role::Leader {
         // if !self.fresh_ballot(message.config.ballot) && self.role == Role::Leader {
             println!("{}: received a ConfigMessage with a stale op_number and I am leader!", self.id);
             //Affirm leadership
@@ -918,56 +1053,102 @@ impl NolerReplica {
             return; //ignore
         }
 
-        //Update the replica config
+        //Update the replica config - later?
         self.config = message.config.clone();
 
-        //Use the replica config to update some state
-        println!("{}: updating ballot to {:?}", self.id, self.config.ballot);
+        //let configx = message.config.clone();
 
-        self.ballot = self.config.ballot; //ToDo: Updated from the ops going forward?
+        //Use the replica config to update some state
+        println!("{}: updating ballot term to {:?}", self.id, self.config.ballot.0);
+
+        self.ballot.0 = self.config.ballot.0; //Only update the term
 
         //Check the ops... check the op_number and if less than the ballot.1, then request for state
 
         self.leader = Some((message.leader_id, self.config.ballot));
 
         //Update the role - but need to check the current role on the replica
+        let replicas = self.config.replicas.clone();
 
-        for replica in self.config.replicas.iter() {
+        for replica in replicas.iter() {
             if replica.id == self.id {
                 match self.role {
                     Role::Witness => {
-                        if replica.role == Role::Candidate {
+                        if replica.role == Role::Candidate { // A witness being promoted to candidate
                             //Change the role to candidate
-                            println!("{}: changing the role to Candidate - request state", self.id);
+                            println!("{}: changing the role to Candidate - execute & request state", self.id);
                             self.role = replica.role;
+
+                            //Check if the replica needs to execute some entries
+                            if self.execution_index != self.commit_index {
+                                //Get the log entries
+                                let entries = self.log.get_log_entries(self.execution_index, self.commit_index);
+
+                                for entry in entries { 
+                                    println!("{}: Log entry - {:?}", self.id, entry);
+
+                                    //Determine the type of operation
+                                    let operation = entry.request.operation.clone();
+                                    let op_result:Result<Operation<String, String>, _> = bincode::deserialize(&operation);
+                                    
+                                    match op_result {
+                                        Ok(msg) => {
+                                            match msg {
+                                                Operation::SET(key, value) => {
+                                                    // Execute the operation on the kvstore
+                                                    let result = self.data.set(key, value);
+                                                    
+                                                    // Update the execution index
+                                                    self.execution_index += 1;
+
+                                                    //Set the log with result of the op
+                                                    self.log.set_response_message(entry.ballot.1, result.clone());
+
+                                                    //Set the log with the state executed
+                                                    self.log.set_status(entry.ballot.1, LogEntryState::Executed);
+
+                                                    let requests = &mut self.requests;
+
+                                                    if let Some(client_requests) = requests.get_mut(&entry.request.client_id) {
+                                                        if let Some(request) = client_requests.get_mut(&entry.request.request_id) {
+                                                            request.1 = true;
+                                                        }
+                                                    }
+
+                                                }
+                                                Operation::GET(_key) => {
+                                                    //ToDo
+                                                }
+                                            }
+                                        }
+                                        Err(_) => {
+                                            println!("{}: received err invalid operation request", self.id);
+                                        }
+                                    }
+
+                                }
+                            }
+
+                            // Check if the replica should go to recovery and request for new state
+                            if self.ballot.1 < self.config.ballot.1 {
+                                // Change status to recovery
+                                self.state = RECOVERY;
+
+                                // Send the RequestStateMessage to the leader only if the condition is met
+                                self.send_state_request(src);
+                            }
+
+                            else {
+                                self.state = NORMAL;
+
+                                //Start the poll leader and heartbeat timeouts
+                                let _ = self.poll_leader_timeout.reset();
+                                let _ = self.heartbeat_timeout.reset();
+                                let _ = self.poll_leader_timer.reset();
+
+                            }
+
                             
-                            //Change status to recovery
-                            self.state = RECOVERY;
-
-                            // //Send the RequestStateMessage to the leader
-                            // let request_state_message = RequestStateMessage {
-                            //     ballot: self.ballot,
-                            //     commit_index: self.commit_index,
-                            // };
-
-                            // //Serialize the RequestStateMessage with meta type set
-                            // let serialized_rsm = wrap_and_serialize(
-                            //     "RequestStateMessage", 
-                            //     serde_json::to_string(&request_state_message).unwrap()
-                            // );
-
-                            // //Send the RequestStateMessage to the leader
-                            // println!("{}: sending a RequestStateMessage to Replica {} with ballot {:?}", self.id, message.leader_id, self.ballot);
-
-                            // let _ = self.transport.send(
-                            //     &src,
-                            //     &mut serialized_rsm.as_bytes(),
-                            // );
-
-                            //Start the poll leader and heartbeat timeouts
-                            let _ = self.poll_leader_timeout.reset();
-                            let _ = self.heartbeat_timeout.reset();
-                            let _ = self.poll_leader_timer.reset();
                         }
 
                         else {
@@ -987,17 +1168,28 @@ impl NolerReplica {
                             println!("{}: changing the role to Witness - request state", self.id);
                             self.role = replica.role;
 
-                            //Change status to normal
-                            self.state = NORMAL;
+                            // Check if the replica should go to recovery and request for new state
+                            if self.ballot.1 < self.config.ballot.1 {
+                                // Change status to recovery
+                                self.state = RECOVERY;
 
-                            //Start the heartbeat timeout
-                            let _ = self.heartbeat_timeout.reset();
+                                // Send the RequestStateMessage to the leader only if the condition is met
+                                self.send_state_request(src);
+                            }
+
+                            else {
+                                //Change status to normal
+                                self.state = NORMAL;
+
+                                //Start the heartbeat timeout
+                                let _ = self.heartbeat_timeout.reset();
+                            }
                         }
 
                         else {
                             //Still a candidate
-                            println!("{}: still a candidate - reset the timers", self.id);
                             self.role = replica.role;
+                            println!("{}: still a candidate [{:?}] - reset the timers", self.id, self.role);
 
                             //Change the status to normal
                             self.state = NORMAL;
@@ -1158,7 +1350,7 @@ impl NolerReplica {
         
     }
 
-    fn handle_heartbeat_message(&mut self, message: HeartBeatMessage){
+    fn handle_heartbeat_message(&mut self, src: SocketAddr, message: HeartBeatMessage){
 
         //assert!(self.ballot == message.ballot, "Only a replica with the same ballot can handle a HeartBeatMessage");
         //assert!(self.role != Role::Leader, "Only a non-leader can handle a HeartBeatMessage"); //ToDo
@@ -1170,11 +1362,6 @@ impl NolerReplica {
             return;
         }
 
-        //Ignore if the heartbeat is from a different term
-        // if self.ballot != message.ballot {
-        //     println!("{}: received a HeartBeatMessage with a different ballot", self.id); //ToDo - determine if fresh ballot!
-        //     return;
-        // }
 
         if self.ballot == message.ballot {
             if self.role == Role::Candidate {
@@ -1249,24 +1436,9 @@ impl NolerReplica {
             //     &mut serialized_rcm.as_bytes(),
             // );
 
-            // Request for new state froom the leader that sent the heartbeat
-            let request_state_message = RequestStateMessage {
-                ballot: self.ballot,
-                commit_index: self.commit_index, //last_op
-            };
+            println!("{}: request for new state in HB", self.id);
 
-            //Serialize the RequestStateMessage with meta type set
-            let serialized_rsm = wrap_and_serialize(
-                "RequestStateMessage", 
-                serde_json::to_string(&request_state_message).unwrap()
-            );
-
-            //Send the RequestStateMessage to the leader
-            println!("{}: sending a RequestStateMessage to Replica {} with my ballot {:?}", self.id, message.leader_id, self.ballot);
-            let _ = self.transport.send(
-                &message.leader_address,
-                &mut serialized_rsm.as_bytes(),
-            );
+            self.send_state_request(src);
 
         }
 
@@ -1279,7 +1451,7 @@ impl NolerReplica {
 
     fn handle_poll_leader_message(&mut self, message:PollLeaderMessage) {
 
-        println!("{}: received a PollLeaderMessage from {}", self.id, message.candidate_id);
+        //println!("{}: received a PollLeaderMessage from {}", self.id, message.candidate_id);
 
         //Ignore if the poll leader is from itself
         if self.id == message.candidate_id {
@@ -1334,7 +1506,7 @@ impl NolerReplica {
 
     fn handle_poll_leader_ok_message(&mut self, message: PollLeaderOkMessage){
 
-        println!("{}: received a PollLeaderOkMessage from leader {}", self.id, message.leader_id);
+        //println!("{}: received a PollLeaderOkMessage from leader {}", self.id, message.leader_id);
 
         //Ignore if the pollleaderokmessage is from itself
         if self.id == message.leader_id {
@@ -1354,12 +1526,12 @@ impl NolerReplica {
                     
                 };
 
-                println!("{}: p2 = {}, p1 = {}", self.id, p1, p2);
+                //println!("{}: p2 = {}, p1 = {}", self.id, p1, p2);
 
                 if p2 > p1 {
                     //Check the variation in the profiles
 
-                    if (p2 - p1) >= 10 {
+                    if (p2 - p1) >= 6 {
                         //Change state to election
                         self.state = ELECTION;
 
@@ -1518,6 +1690,13 @@ impl NolerReplica {
         self.start_election_cycle(ElectionType::Timeout);
     }
 
+    fn handle_leader_profile_vote_timeout (&mut self) {
+        println!("{}: received LeaderProfileVoteTimeout", self.id);
+        //Assert leadership position
+        self.state = NORMAL;
+        self.affirm_leadership(self.ballot);
+    }
+
     fn handle_leadership_vote_timeout (&mut self) {
         println!("{}: received LeadershipVoteTimeout", self.id);
         self.state = ELECTION;
@@ -1622,7 +1801,7 @@ impl NolerReplica {
             );
 
             //Send the PollLeaderMessage to the leader
-            println!("{}: sending a PollLeaderMessage to Replica {} with term {} at {:?}", self.id, self.leader.unwrap().0, self.ballot.1, Instant::now());
+            //println!("{}: sending a PollLeaderMessage to Replica {} with term {} at {:?}", self.id, self.leader.unwrap().0, self.ballot.1, Instant::now());
 
             //Get the leader address
             let leader_address = {
@@ -1683,8 +1862,6 @@ impl NolerReplica {
         );
     }
     
-
-
     //Request Processing Handlers
     fn handle_request_message(&mut self, message: RequestMessage) {
         //Need to get the message type and act accordingly
@@ -1922,70 +2099,65 @@ impl NolerReplica {
 
     fn handle_propose_message(&mut self, src: SocketAddr, message: ProposeMessage) {
 
-        if message.ballot < self.ballot {
-            println!("{}: received a stale ProposeMessage - last_op", self.id);
-            return;
-        }
-
-        if message.ballot.1 < self.last_op {
-            println!("{}: received a stale ProposeMessage - last_op", self.id);
-            return;
-        }
-
         if self.role == Role::Leader {
-            println!("{}: ignore as this is done by non-leader nodes", self.id);
+            println!("{}: ignore as this is done by non-leader nodes and my role is {:?}", self.id, self.role);
             return;
         }
 
         if self.state != NORMAL {
-            println!("{}: ignore as this is done only in the normal state", self.id);
+            println!("{}: ignore as this propose is done only in the normal state", self.id);
             return;
         }
 
-        else {
+        //Stale Propose Message
+        if message.ballot < self.ballot {
+            println!("{}: ignore as this propose message is stale < ", self.id);
+            return;
+        }
 
-            //Check if the request is in the log
-            let request_entry = self.log.find(message.ballot.1);
+        //Future Propose Message
+        else if message.ballot > self.ballot {
+            //Determine if next proposal
+            if message.ballot.0 == self.ballot.0 && message.ballot.1 == (self.ballot.1 + 1) {
+                //Vote procedures: //Check if the request is in the log
+                let request_entry = self.log.find(message.ballot.1);
 
-            if request_entry.is_some() {
-                println!("{}: request already in the log", self.id);
+                if request_entry.is_some() {
+                    println!("{}: request already in the log", self.id);
 
-                let entry_state = &request_entry.unwrap().state;
+                    let entry_state = &request_entry.unwrap().state;
 
-                match entry_state {
-                    LogEntryState::Proposed => {
-                        //Resend the ProposeOKMessage to the leader
+                    match entry_state {
+                        LogEntryState::Proposed => {
+                            //Resend the ProposeOKMessage to the leader
 
-                        let propose_ok_message = ProposeOkMessage {
-                            ballot: message.ballot,
-                            commit_index: self.commit_index,
-                        };
+                            let propose_ok_message = ProposeOkMessage {
+                                ballot: message.ballot,
+                                commit_index: self.commit_index,
+                            };
 
-                        //Serialize the ProposeOkMessage with meta type set
-                        let serialized_pom = wrap_and_serialize(
-                            "ProposeOkMessage", 
-                            serde_json::to_string(&propose_ok_message).unwrap()
-                        );
+                            //Serialize the ProposeOkMessage with meta type set
+                            let serialized_pom = wrap_and_serialize(
+                                "ProposeOkMessage", 
+                                serde_json::to_string(&propose_ok_message).unwrap()
+                            );
 
-                        //Send the ProposeOkMessage to the leader
-                        println!("{}: sending a ProposeOkMessage to Replica {} with ballot {:?}", self.id, src, message.ballot);
+                            //Send the ProposeOkMessage to the leader
+                            println!("{}: sending a ProposeOkMessage to leader {} with ballot {:?}", self.id, src, message.ballot);
 
-                        let _ = self.transport.send(
-                            &src,
-                            &mut serialized_pom.as_bytes(),
-                        );
+                            let _ = self.transport.send(
+                                &src,
+                                &mut serialized_pom.as_bytes(),
+                            );
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
-            }
 
-            else {
+                else {
 
-                //ToDo: gaps
-
-                if message.ballot.1 == (self.last_op + 1){
                     //Update the last_op
-                    self.last_op += 1;
+                    //self.last_op += 1;
 
                     //Add the request to the log
                     self.log.append(message.ballot, message.request.clone(), None, LogEntryState::Proposed);
@@ -2011,29 +2183,23 @@ impl NolerReplica {
                         &mut serialized_pom.as_bytes(),
                     );
                 }
-
-                else {
-                    //Request for state from the leader
-
-                    let request_state_message = RequestStateMessage {
-                        ballot: self.ballot,
-                        commit_index: self.commit_index, //last_op
-                    };
-
-                    //Serialize the RequestStateMessage with meta type set
-                    let serialized_rsm = wrap_and_serialize(
-                        "RequestStateMessage", 
-                        serde_json::to_string(&request_state_message).unwrap()
-                    );
-
-                    //Send the RequestStateMessage to the leader
-                    println!("{}: sending a RequestStateMessage to Replica {} with ballot {:?}", self.id, src, self.ballot);
-                    let _ = self.transport.send(
-                        &src,
-                        &mut serialized_rsm.as_bytes(),
-                    );
-                }
             }
+
+            else {
+                //Request for new state
+                println!("{}: request for new state in propose: my ballot {:?} v leader ballot {:?}", self.id, self.ballot, message.ballot);
+                // Change status to recovery
+                self.state = RECOVERY;
+
+                // Send the RequestStateMessage to the leader only if the condition is met
+                self.send_state_request(src);
+            }
+        }
+
+        // The messages are similar - resend the response
+        else {
+            println!("{}: ignore as this propose message is stale == ", self.id);
+            return;
         }
     }
 
@@ -2187,123 +2353,129 @@ impl NolerReplica {
     }
 
     fn handle_commit(&mut self, src: SocketAddr, message: CommitMessage) {
-        println!("{}: received a CommitMessage from Replica {} with ballot {:?}", self.id, src, message.ballot);
+        println!("{}: received a CommitMessage from replica {} with commit ballot {:?}. My ballot: {:?}", self.id, src, message.ballot, self.ballot);
 
         if self.role == Role::Leader || self.role == Role::Member {
-            println!("{}: ignore as this is done by non-leader/member nodes", self.id);
+            println!("{}: ignore as this is done by non-leader/member nodes but my role is {:?}", self.id, self.role);
             return;
         }
 
         if self.state != NORMAL {
-            println!("{}: ignore as this is done only in the normal state", self.id);
+            println!("{}: ignore as this commit is done only in the normal state", self.id);
             return;
         }
-        
-        if message.ballot > self.ballot {
 
-            // Find the request in the log
-            let ballot = message.ballot.clone();
+        //Stale ballot
+        if message.ballot < self.ballot {
+            println!("{}: ignore as the commit message is stale < ", self.id);
+            return;
+        }
 
-            if let Some(entry) = self.log.find(ballot.1) {
-                if entry.state == LogEntryState::Proposed {
-                    //Create the log clone to work with
-                    let entry_clone = entry.clone(); //for immutable operation
+        else if message.ballot > self.ballot {
+            //Determine if next ballot
+            if message.ballot.0 == self.ballot.0 && message.ballot.1 == self.ballot.1 + 1 {
+                // Find the request in the log
+                let ballot = message.ballot.clone();
 
-                    //Update the log with committed
-                    self.log.set_status(ballot.1, LogEntryState::Committed);
+                if let Some(entry) = self.log.find(ballot.1) {
+                    if entry.state == LogEntryState::Proposed {
+                        //Create the log clone to work with
+                        let entry_clone = entry.clone(); //for immutable operation
 
-                    //Update the current ballot & commit index
-                    //self.ballot.1 += 1;
-                    self.ballot.0 = ballot.0;
-                    self.ballot.1 = ballot.1; //op_number
-                    self.commit_index = self.ballot.1;
+                        //Update the log with committed
+                        self.log.set_status(ballot.1, LogEntryState::Committed);
 
-                    match self.role {
-                        Role::Candidate => {
-                            // Determine the type of operation
-                            let operation = entry_clone.request.operation.clone();
-                            let op_result:Result<Operation<String, String>, _> = bincode::deserialize(&operation);
+                        //Update the current ballot & commit index
+                        //self.ballot.1 += 1;
+                        self.last_op += 1;
+                        self.ballot.0 = ballot.0;
+                        self.ballot.1 = ballot.1; //op_number
+                        self.commit_index = self.ballot.1;
 
-                            match op_result {
-                                Ok(msg) => {
-                                    match msg {
-                                        Operation::SET(key, value) => {
+                        match self.role {
+                            Role::Candidate => {
+                                // Determine the type of operation
+                                let operation = entry_clone.request.operation.clone();
+                                let op_result:Result<Operation<String, String>, _> = bincode::deserialize(&operation);
+
+                                match op_result {
+                                    Ok(msg) => {
+                                        match msg {
+                                            Operation::SET(key, value) => {
                                             
-                                            // Execute the operation
-                                            let result = self.data.set(key, value);
+                                                // Execute the operation
+                                                let result = self.data.set(key, value);
 
-                                            // Update the execution index
-                                            self.execution_index = self.commit_index;
+                                                // Update the execution index
+                                                self.execution_index = self.commit_index;
 
-                                            //Set the log with result of the op
-                                            self.log.set_response_message(ballot.1, result.clone());
+                                                //Set the log with result of the op
+                                                self.log.set_response_message(ballot.1, result.clone());
 
-                                            //Set the log with the state executed
-                                            self.log.set_status(ballot.1, LogEntryState::Executed);
+                                                //Set the log with the state executed
+                                                self.log.set_status(ballot.1, LogEntryState::Executed);
                                             }
-                                        Operation::GET(_key) => {
-                                            //ToDo
+                                            Operation::GET(_key) => {
+                                                //ToDo
+                                            }
                                         }
                                     }
-                                }
-                                Err(_) => {
-                                    println!("{}: received err invalid operation request", self.id);
+                                    Err(_) => {
+                                        println!("{}: received err invalid operation request", self.id);
+                                    }
                                 }
                             }
+                            _ => {}
                         }
-                        _ => {}
                     }
+                }
+
+                else {
+                    println!("{}: ignore as the request has not been logged", self.id);
+                    return;
                 }
             }
 
             else {
-                println!("{}: ignore as the request has not been logged", self.id);
-                return;
+                //Request for new state
+                println!("{}: request for new state in commit", self.id);
+                // Change status to recovery
+                self.state = RECOVERY;
+
+                // Send the RequestStateMessage to the leader only if the condition is met
+                self.send_state_request(src);
             }
-        }
-        else if message.ballot > self.ballot {
-
-            //Change state to recovery
-            self.state = RECOVERY;
-
-            //Request for the log from the leader
-            let request_state_message = RequestStateMessage {
-               ballot: self.ballot,
-               commit_index: self.commit_index,
-            };
-
-            //Serialize the RequestStateMessage with meta type set
-            let serialized_rsm = wrap_and_serialize(
-                "RequestStateMessage", 
-                serde_json::to_string(&request_state_message).unwrap()
-            );
-
-            //Send the RequestStateMessage to the leader
-            println!("{}: sending a RequestStateMessage to Replica {} with ballot {:?}", self.id, src, message.ballot);
-            let _ = self.transport.send(
-                &src,
-                &mut serialized_rsm.as_bytes(),
-            );
+            
         }
 
+        //Stale ballot - seen
         else {
-            println!("{}: ignore as the commit message is stale", self.id);
+            println!("{}: ignore as the commit message is stale == ", self.id);
             return;
         }
 
-        //Print the log & data
-        //println!("{}: log is {:?}", self.id, self.log);
-        //println!("{}: data is {:?}", self.id, self.data);
     }
     
 
     fn handle_request_state (&mut self, src: SocketAddr, message: RequestStateMessage) {
-        if self.role != Role::Leader || self.state != NORMAL {
-            println!("{}: ignore as this is done by normal leader node", self.id);
+        // if self.role != Role::Leader || self.state != NORMAL { 
+        //     println!("{}: ignore as this is done by normal leader node", self.id);
+        //     return;
+        // }
+
+        //Just ensure all entries are in the range []ToDox
+
+        if self.commit_index < message.commit_index {
+            println!("{}: ignore as local commit is behind", self.id);
             return;
         }
 
-        if message.ballot > self.ballot {
+        if self.commit_index == message.commit_index {
+            println!("{}: ignore as the local and remote commit indices are similar", self.id);
+            return;
+        }
+
+        if self.fresh_ballot(message.ballot) {
             println!("{}: ignore as the request state message is future: our ballot - {:?} & their ballot - {:?}", self.id, self.ballot, message.ballot); //Stale leader
 
             //Change state to recovery //ToDo - who is the leader? Wait..
@@ -2315,7 +2487,11 @@ impl NolerReplica {
         else {
 
             //Retrieve the log from message.commit_index to our current commit_index
+
+            println!("{}: retrieving log entries from {} to {} for {:?}", self.id, message.commit_index, self.commit_index, src);
             let log = self.log.get_entries(message.commit_index, self.commit_index);
+
+            let len = log.len();
 
             //Serialize the log
             let log = serde_json::to_vec(&log).unwrap();
@@ -2325,6 +2501,7 @@ impl NolerReplica {
                 ballot: self.ballot,
                 commit_index: self.commit_index,
                 log: log,
+                profile: false,
             };
 
             //Serialize the LogStateMessage with meta type set
@@ -2334,7 +2511,7 @@ impl NolerReplica {
             );
 
             //Send the LogStateMessage to the replica
-            println!("{}: sending a LogStateMessage to Replica {} with ballot {:?}", self.id, src, message.ballot);
+            println!("{}: sending a LogStateMessage to Replica {} with ballot {:?} and length {}", self.id, src, message.ballot, len);
             let _ = self.transport.send(
                 &src,
                 &mut serialized_sm.as_bytes(),
@@ -2377,101 +2554,298 @@ impl NolerReplica {
         //Update the monitor
         self.monitor = message.profiles;
 
+        //println!("{}: Monitor profiles {:?}", self.id, self.monitor);
+
         //Restart the monitor timeout
         let _ = self.poll_monitor_timeout.reset();
     }
 
-    fn handle_received_state(&mut self, message:LogStateMessage) {
-        if self.state != RECOVERY {
-            println!("{}: ignore as this is done in recovery state", self.id);
+    fn handle_received_state(&mut self, src:SocketAddr, message:LogStateMessage) {
+        println!("{}: handling received state from {:?}", self.id, src);
+
+        if message.ballot < self.ballot {
+            println!("{}: ignore as the state message ballot {:?} is stale to our ballot {:?}", self.id, message.ballot, self.ballot);
             return;
         }
 
-        if message.ballot < self.ballot {
+        if message.ballot.1 == self.ballot.1 || message.ballot.1 == self.commit_index || message.ballot.1 == self.execution_index || message.commit_index == self.commit_index{
+            println!("{}: ignore as the received state and local state are similar", self.id);
+            self.state = NORMAL;
+            return;
+        }
+
+        if self.state == INITIALIZATION || self.state == CONFIGURATION || self.state == NORMAL || self.state == OFFLINE{
+            println!("{}: ignore as this is done in recovery and election states but my state is {}", self.id, self.state);
+            return;
+        }
+
+        let log_entries: Vec<LogEntry> = serde_json::from_slice(&message.log).unwrap();
+
+        println!("{}: number of logstate entries received: {}", self.id, log_entries.len());
+
+        //Get the first entry in the log
+        let first = log_entries.first().unwrap();
+
+        //Get the last entry in the log
+        let last = log_entries.last().unwrap();
+
+        //Get the last committed entry in the log of this replica
+        let last_commit = self.commit_index;
+
+        //First entry must be <= last_commit
+        //Last entry must be >= last_commit
+        println!("{}: - first entry in the log {:?}, last entry in the log {:?}, local last commit {:?}", self.id, first, last, last_commit);
+
+        if first.ballot.1 > last_commit {
+            println!("{}: ignore as the state message is future", self.id);
+            return;
+        }
+
+        if last.ballot.1 < last_commit {
             println!("{}: ignore as the state message is stale", self.id);
             return;
         }
 
-        else {
-            //Retrieve the log entries from the message
-            let log_entries: Vec<LogEntry> = serde_json::from_slice(&message.log).unwrap();
+        for entry in log_entries.iter() {
+            //Check if the entry is already in the log - this will skip the first 
 
-            //Get the first entry in the log
-            let first = log_entries.first().unwrap();
+            let request_entry = self.log.find(entry.ballot.1);
 
-            //Get the last entry in the log
-            //let last = log_entries.last().unwrap();
+            if request_entry.is_some() { // Check the state to ensure it has been exec|comm
+                println!("{}: this entry is already in the log {:?} with the state {:?}",self.id, entry, request_entry.unwrap().state);
 
-            //Get the last entry in the log of this replica
-            let last_commit = self.log.last_opnum();
+                // Check for the state of the log | Candidate -> execute, Witness -> only commit
 
-            //The last commit commit should be the same as the first entry in the log
-            if last_commit != first.ballot.1 {
-                println!("{}: ignore as the state message is stale", self.id);
-                return;
-            }
+                match self.role {
+                    Role::Candidate => {
+                        match request_entry.unwrap().state {
+                            LogEntryState::Executed => {
+                                continue;
+                            }
+                            LogEntryState::Committed => { //Execute the entry & update the execution index
+                                let operation = entry.request.operation.clone();
+                                let op_result:Result<Operation<String, String>, _> = bincode::deserialize(&operation);
+                            
+                                match op_result {
+                                    Ok(msg) => {
+                                        match msg {
+                                            Operation::SET(key, value) => {
+                                                println!("{}: now executing received log - Entry {:?}", self.id, entry);
+                                                // Execute the operation on the kvstore
+                                                let result = self.data.set(key, value);
+                                            
+                                                // Update the execution index
+                                                self.execution_index += 1;
 
-            for entry in log_entries.iter() {
-                //Check if the entry is already in the log - this will skip the first 
+                                                //Set the log with result of the op
+                                                self.log.set_response_message(entry.ballot.1, result.clone());
 
-                let request_entry = self.log.find(entry.ballot.1);
+                                                //Set the log with the state executed
+                                                self.log.set_status(entry.ballot.1, LogEntryState::Executed);
 
-                if request_entry.is_some() {
-                    continue;
-                }
+                                                continue;
 
-                else {
-                    //Update the commit index
-                    self.commit_index = entry.ballot.1;
-                    self.last_op = entry.ballot.1;
-
-                    //Add the entry to the log with status committed
-                    self.log.append(entry.ballot, entry.request.clone(), entry.response.clone(), LogEntryState::Committed);
-
-                    //Match the node role
-                    match self.role {
-                        Role::Candidate => {
-                            //Determine the type of operation
-                            let operation = entry.request.operation.clone();
-                            let op = String::from_utf8_lossy(&operation);
-                            let parts: Vec<&str> = op.split_whitespace().collect();
-
-                            match parts[0] {
-                                "SET" => {
-                                    // Execute the operation on the kvstore
-                                    let result = self.data.set(parts[1].to_string(), parts[2].to_string());
-
-                                    // Update the execution index
-                                    self.execution_index = self.commit_index;
-
-                                    //Set the log with result of the op
-                                    self.log.set_response_message(entry.ballot.1, result.clone());
-
-                                    //Set the log with the state executed
-                                    self.log.set_status(entry.ballot.1, LogEntryState::Executed);
-                                }
-                                _ => {
-                                    println!("{}: received invalid request", self.id);
+                                            }
+                                            Operation::GET(_key) => {
+                                                //ToDo
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    Err(_) => {
+                                        panic!("{}: received err invalid operation request", self.id);
+                                    }
                                 }
                             }
+
+                            _ => {
+                                //Commit & execute
+                                println!("{}: now commiting received log [candidate] - Entry {:?}", self.id, entry);
+                                self.log.set_status(entry.ballot.1, LogEntryState::Committed);
+
+                                self.commit_index += 1;
+                                self.last_op += 1;
+                                self.ballot.1 +=1;
+
+                                //Determine the type of operation
+                                let operation = entry.request.operation.clone();
+                                let op_result:Result<Operation<String, String>, _> = bincode::deserialize(&operation);
+                                    
+                                match op_result {
+                                    Ok(msg) => {
+                                        match msg {
+                                            Operation::SET(key, value) => {
+                                                println!("{}: now executing received log [candidate] - Entry {:?}", self.id, entry);
+                                                // Execute the operation on the kvstore
+                                                let result = self.data.set(key, value);
+                                                    
+                                                // Update the execution index
+                                                self.execution_index += 1;
+
+                                                //Set the log with result of the op
+                                                self.log.set_response_message(entry.ballot.1, result.clone());
+
+                                                //Set the log with the state executed
+                                                self.log.set_status(entry.ballot.1, LogEntryState::Executed);
+
+                                                continue;
+
+                                            }
+                                            Operation::GET(_key) => {
+                                                //ToDo
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    Err(_) => {
+                                        panic!("{}: received err invalid operation request", self.id);
+                                    }
+                                }
+
+                            }
+
                         }
-                        _ => {}
+                    }
+
+                    Role::Witness => {
+                        match request_entry.unwrap().state {
+                            LogEntryState::Executed => {
+                                continue;
+                            }
+                            LogEntryState::Committed => {
+                                continue;
+                            }
+                            LogEntryState::Request => {
+                                panic!("{}: unsupported op with the state 'request' in the log",self.id);
+                            }
+                            _ => { //Commit the operation
+                                //Update the entry to the log with status committed
+                                println!("{}: now commiting received log [witness] - Entry {:?}", self.id, entry);
+                                self.log.set_status(entry.ballot.1, LogEntryState::Committed);
+
+                                self.commit_index += 1;
+                                self.last_op += 1;
+                                self.ballot.1 +=1;
+
+                                continue;
+                            }
+
+                            // _ => {
+                            //     panic!("{}: the witness only supports executed, committed and proposed entries. Received op with status {:?} for the entry {:?}", self.id, request_entry.unwrap().state, entry);
+                            // }
+
+                        }
+                    }
+
+                    _ => {
+                        println!("{}: replica has no role defined - requesting for configuration", self.id);
+
+                        //Request for configuration
+                        let request_config_message = RequestConfigMessage {
+                            replica_id: self.id,
+                            replica_address: self.replica_address,
+                            ballot: self.ballot,
+                        };
+        
+                        //Serialize the RequestConfigMessage with meta type set
+                        let serialized_rcm = wrap_and_serialize(
+                            "RequestConfigMessage", 
+                            serde_json::to_string(&request_config_message).unwrap()
+                        );
+        
+                        //Send the RequestConfigMessage to the leader
+                        println!("{}: sending a RequestConfigMessage to replica {:?} with my ballot {:?}", self.id, src, self.ballot);
+        
+                        let _ = self.transport.send(
+                            &src,
+                            &mut serialized_rcm.as_bytes(),
+                        );
+        
+                        return;
                     }
                 }
             }
-        }
 
+            else {
+                //Update the commit index
+                println!("{}: now commiting received log [all - new] - Entry {:?}", self.id, entry);
+                self.commit_index += 1;
+                self.last_op += 1;
+                self.ballot.1 +=1;
+
+                //Add the entry to the log with status committed
+                self.log.append(entry.ballot, entry.request.clone(), entry.response.clone(), LogEntryState::Committed);
+
+                //Match the node role
+                match self.role {
+                    Role::Candidate => {
+                        //Determine the type of operation
+                        let operation = entry.request.operation.clone();
+                        let op_result:Result<Operation<String, String>, _> = bincode::deserialize(&operation);
+                            
+                        match op_result {
+                            Ok(msg) => {
+                                match msg {
+                                    Operation::SET(key, value) => {
+                                        println!("{}: now executing received log [candidate - new] - Entry {:?}", self.id, entry);
+                                        // Execute the operation on the kvstore
+                                        let result = self.data.set(key, value);
+                                            
+                                        // Update the execution index
+                                        self.execution_index += 1;
+
+                                        //Set the log with result of the op
+                                        self.log.set_response_message(entry.ballot.1, result.clone());
+
+                                        //Set the log with the state executed
+                                        self.log.set_status(entry.ballot.1, LogEntryState::Executed);
+
+                                        continue;
+
+                                    }
+                                    Operation::GET(_key) => {
+                                        //ToDo
+                                        continue;
+                                    }
+                                }
+                            }
+                            Err(_) => {
+                                panic!("{}: received err invalid operation request", self.id);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+            
         if message.commit_index == self.commit_index { //All the operations have been committed/executed
             //Change state to normal
+            println!("{}: now changing state to normal - all entries committed upto {}", self.id, message.commit_index);
             self.state = NORMAL;
+
+            if message.profile {
+                println!("{}: ", self.id);
+                //Start the same profile election - change state to election
+                self.state = ELECTION;
+    
+                //Start the election cycle with type profile
+                self.start_election_cycle(ElectionType::Profile);
+            }
+
+            else {
+                return; //normal - can process requests
+            }
         }
 
         else {
             //Remain in the recovery state
             self.state = RECOVERY;
-            panic!("{}: received a stale state", self.id);
+            println!("{}: received a stale state & remaining in RECOVERY - my commit index: {} received state index: {}", self.id, self.commit_index, message.commit_index);
         }
+
     }
+    
 
     fn start_noler_msg_rcv(&self) {
 
@@ -2482,10 +2856,22 @@ impl NolerReplica {
         //let id = self.id;
 
         thread::spawn(move || {
-            let mut buf = [0; 1024];
+            let mut buf = [0; 100000];
+            //let mut buf = Vec::with_capacity(1024);
             loop {
+                //buf.clear(); // Clear the buffer before each iteration
+                //buf.resize(1024, 0); // Resize the buffer to the initial capacity
+
                 match transport.receive_from(&mut buf) {
                     Ok((len, from)) => {
+                        //Print the length of the received message
+                        //println!("Length of the message received: {:?} bytes", len);
+
+                        // Resize the buffer if the received message is larger than the buffer
+                        // if len > buf.len() {
+                        //     buf.resize(len, 0);
+                        // }
+                        //buf.resize(len, 0);
 
                         let channel = String::from("Network");
                         let message = String::from_utf8_lossy(&buf[..len]).to_string();
@@ -2554,7 +2940,7 @@ impl NolerReplica {
                                         match request_vote_message {
                                             Ok(request_vote_message) => {
                                                 //println!("{}: handling the RequestVoteMessage {:?}", self.id, request_vote_message);
-                                                self.handle_request_vote_message(request_vote_message);
+                                                self.handle_request_vote_message(src, request_vote_message);
                                             },
                                             Err(err) => {
                                                 println!("Failed to deserialize request message: {:?}", err);
@@ -2597,7 +2983,7 @@ impl NolerReplica {
                                         match heartbeat_message {
                                             Ok(heartbeat_message) => {
                                                 //println!("{}: received a HeartBeatMessage from Replica {} with ballot {:?} at {:?}", self.id, heartbeat_message.leader_id, heartbeat_message.ballot, Instant::now());
-                                                self.handle_heartbeat_message(heartbeat_message);
+                                                self.handle_heartbeat_message(src, heartbeat_message);
                                             },
                                             Err(err) => {
                                                 println!("Failed to deserialize the heartbeat message: {:?}", err);
@@ -2611,7 +2997,7 @@ impl NolerReplica {
                                             
                                         match request_config_message {
                                             Ok(request_config_message) => {
-                                                println!("{}: received a RequestConfigMessage from Replica {} with ballot {:?}", self.id, request_config_message.replica_id, request_config_message.ballot);
+                                                println!("{}: received a RequestConfigMessage from replica {} with ballot {:?}", self.id, request_config_message.replica_id, request_config_message.ballot);
                                                 self.handle_request_config(request_config_message);
                                             },
                                             Err(err) => {
@@ -2722,7 +3108,7 @@ impl NolerReplica {
                                             
                                         match request_state_message {
                                             Ok(request_state_message) => {
-                                                //println!("{}: received a RequestStateMessage from Replica {} with term {}", self.id, request_state_message.leader, request_state_message.propose_term);
+                                                println!("{}: received a RequestStateMessage {:?} from replica {:?} with ballot {:?}", self.id, request_state_message, src, request_state_message.ballot);
                                                 self.handle_request_state(src, request_state_message);
                                             },
                                             Err(err) => {
@@ -2738,8 +3124,8 @@ impl NolerReplica {
                                             
                                         match log_state_message {
                                             Ok(log_state_message) => {
-                                                //println!("{}: received a LogStateMessage from Replica {} with term {}", self.id, log_state_message.leader, log_state_message.propose_term);
-                                                self.handle_received_state(log_state_message);
+                                                println!("{}: received a LogStateMessage with ballot {:?} and commit index {}", self.id, log_state_message.ballot, log_state_message.commit_index);
+                                                self.handle_received_state(src, log_state_message);
                                             },
                                             Err(err) => {
                                                 println!("Failed to deserialize the log state message: {:?}", err);
@@ -2785,6 +3171,10 @@ impl NolerReplica {
 
                             "LeaderVoteTimeout" => {
                                 self.handle_leader_vote_timeout();
+                            },
+
+                            "LeaderProfileVoteTimeout" => {
+                                self.handle_leader_profile_vote_timeout();
                             },
 
                             "LeaderShipVoteTimeout" => {

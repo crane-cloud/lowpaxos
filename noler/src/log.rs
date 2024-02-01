@@ -84,14 +84,14 @@ impl Log {
         //println!("opnum: {}", opnum);
         if let Some(entry) = self.entries.get((opnum - self.start) as usize) {
             if entry.ballot.1 == opnum {
-                println!("An entry with opnum {} was found, has the same ballot.last_op {}", opnum, entry.ballot.1);
+                //println!("An entry with opnum {} was found, has the same ballot.last_op {}", opnum, entry.ballot.1);
                 Some(entry)
             } else {
-                println!("An entry with opnum {} was found, but it has a different ballot.last_op {} ", opnum, entry.ballot.1);
+                //println!("An entry with opnum {} was found, but it has a different ballot.last_op {} ", opnum, entry.ballot.1);
                 None
             }
         } else {
-            println!("No entry with opnum {} was found", opnum);
+            //println!("No entry with opnum {} was found", opnum);
             None
         }
     }
@@ -141,6 +141,17 @@ impl Log {
         }
         entries
     }
+
+    pub fn get_log_entries(&self, start: u64, end: u64) -> Vec<LogEntry> {
+        let mut entries = Vec::new();
+        for i in start..=end {
+            if let Some(entry) = self.find(i) {
+                entries.push(entry.clone());
+            }
+        }
+        entries
+    }
+    
 
     //Append log entries from one operation number to another
     pub fn append_entries(&mut self, entries: Vec<LogEntry>) {

@@ -8,6 +8,8 @@ pub const OFFLINE:u8 = 5;
 pub const LEADER_VOTE_TIMEOUT:u64 = 4;
 pub const LEADERSHIP_VOTE_TIMEOUT:u64 = 6;
 
+pub const LEADER_PROFILE_VOTE_TIMEOUT:u64 = 4;
+
 pub const LEADER_LEASE_TIMEOUT:u64 = 6;
 
 pub const POLL_LEADER_TIMEOUT:u64 = 10;
@@ -15,7 +17,7 @@ pub const HEARTBEAT_TIMEOUT:u64 = 16;
 
 pub const POLL_LEADER_TIMER:u64 = 4;
 
-pub const POLL_MONITOR_TIMEOUT:u64 = 10;
+pub const POLL_MONITOR_TIMEOUT:u64 = 2;
 
 // leader_lease_timeout < heartbeat_timeout  
 // poll_leader_timer < poll_leader_timeout

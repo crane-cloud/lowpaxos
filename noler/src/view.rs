@@ -116,7 +116,7 @@ fn main(){
     let config = parse_configuration(config_file);
     let matrix = parse_profile_file(config.replicas.len(), profiles_file);
 
-    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 30000);
+    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 10, 1, 6)), 30000);
     let transport = Transport::new(address);
     let mut monitor = Monitor::new(transport, matrix);
 

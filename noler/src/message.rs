@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use rand_distr::num_traits::ops::bytes;
+// use rand_distr::num_traits::ops::bytes;
 use serde::{Serialize, Deserialize};
 
 use crate::role::Role;
@@ -180,6 +180,7 @@ pub struct LogStateMessage {
     pub ballot: (u32, u64),
     pub commit_index: u64,
     pub log: Vec<u8>,
+    pub profile: bool,
 }
 
 #[allow(dead_code)]
